@@ -2,6 +2,8 @@ import httpx
 import hashlib
 from .models import Article
 from .settings import NEWS_API_KEY
+from .sample_data import SAMPLE_ARTICLES
+
 
 def _make_id(title: str, source: str, published_at: str) -> str:
     raw = f"{title}|{source}|{published_at}".encode("utf-8")
@@ -9,7 +11,9 @@ def _make_id(title: str, source: str, published_at: str) -> str:
 
 async def fetch_news(query: str, days: int, max_articles: int) -> list[Article]:
     if not NEWS_API_KEY:
-        raise RuntimeError("Missing NEWS_API_KEY in .env")
+    # No API key -> return mock data so the demo still works
+        return SAMPLE_ARTICLES[:max_articles]
+
 
     # NewsAPI /v2/everything
     url = "https://newsapi.org/v2/everything"
