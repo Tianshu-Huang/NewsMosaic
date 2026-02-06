@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { api, Cluster } from "../api";
+import { api } from "../api";
+import type { Cluster } from "../api";
 import MosaicBoard from "../components/MosaicBoard";
 
 export default function Mosaic() {

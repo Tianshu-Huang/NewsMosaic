@@ -1,84 +1,130 @@
 from typing import List
 from .models import Article, Tile, ClusterSummary
-from .settings import OPENAI_API_KEY
+from .settings import GEMINI_API_KEY
+import google.generativeai as genai
+import json
+
+def _has_real_gemini_key() -> bool:
+    # 避免占位符 "xxxx" 触发请求
+    if not GEMINI_API_KEY:
+        return False
+    k = GEMINI_API_KEY.strip()
+    if k.lower() in {"xxxx", "your_key_here", "replace_me"}:
+        return False
+    return True
 
 def fallback_tile(article: Article) -> Tile:
-    # 最简 fallback：都当 FACT
-    return Tile(article=article, tile_type="FACT", topic_tags=[], one_line_takeaway=article.title[:120], confidence=0.4)
+    # 简单用规则：所有 tile 都当 FACT，takeaway 用标题
+    return Tile(
+        article=article,
+        tile_type="FACT",
+        topic_tags=[],
+        one_line_takeaway=(article.snippet or article.title)[:140],
+        confidence=0.4,
+    )
 
 def fallback_cluster_summary(articles: List[Article]) -> ClusterSummary:
-    top = articles[0].title if articles else "Event cluster"
-    timeline = []
-    for a in articles[:3]:
-        timeline.append({"time": a.published_at, "event": a.title[:120]})
+    # 纯规则 summary：取最新一条标题当 cluster title，timeline 取前3条
+    title = articles[0].title if articles else "Event cluster"
+    timeline = [{"time": a.published_at, "event": a.title[:120]} for a in articles[:3]]
     return ClusterSummary(
-        cluster_title=top[:80],
-        what_happened=top[:200],
-        why_it_matters=["A quick MVP summary (LLM disabled)."],
-        what_to_watch=["Enable OPENAI_API_KEY for better synthesis."],
-        timeline=timeline
+        cluster_title=title[:80],
+        what_happened=(articles[0].snippet or articles[0].title)[:240] if articles else "No items.",
+        why_it_matters=[
+            "This is a mock summary (LLM disabled).",
+            "Add OPENAI_API_KEY to enable richer synthesis.",
+        ],
+        what_to_watch=[
+            "Enable OpenAI for stance/type labeling and better timeline extraction."
+        ],
+        timeline=timeline,
     )
 
 async def classify_tiles(articles: List[Article]) -> List[Tile]:
-    if not OPENAI_API_KEY:
+    # ✅ 无 key 直接 fallback，不会调用 Gemini
+    if not _has_real_gemini_key():
         return [fallback_tile(a) for a in articles]
 
-    # ✅ Hackathon 建议：先做“批量”分类以省 token（这里写单条示例，方便你们改批量）
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
     tiles: List[Tile] = []
     for a in articles:
-        prompt = {
+        payload = {
             "title": a.title,
             "snippet": a.snippet,
             "source": a.source,
-            "published_at": a.published_at
+            "published_at": a.published_at,
         }
-        resp = await client.responses.create(
-            model="gpt-4.1-mini",
-            input=[
-                {"role":"system","content":"You label news fragments for a mosaic board. Output strict JSON only."},
-                {"role":"user","content":str(prompt)}
-            ],
-        )
-        text = resp.output_text.strip()
-        # 简化：直接 eval 风险大；建议 json.loads + try/except
-        import json
+        prompt = f"""You label news fragments for a mosaic board. Output strict JSON only.
+
+{json.dumps(payload)}
+
+Respond with JSON containing: type (FACT/ANALYSIS/OPINION/UNVERIFIED), topic_tags (list), one_line_takeaway (string), confidence (0-1 float)."""
+        
         try:
+            resp = model.generate_content(prompt)
+            text = resp.text.strip()
+            # Extract JSON from response (may be wrapped in markdown code blocks)
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0]
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0]
+            
             data = json.loads(text)
-            tiles.append(Tile(
-                article=a,
-                tile_type=data.get("type","FACT"),
-                topic_tags=data.get("topic_tags",[]),
-                one_line_takeaway=data.get("one_line_takeaway","") or a.title[:120],
-                confidence=float(data.get("confidence",0.5))
-            ))
+            tiles.append(
+                Tile(
+                    article=a,
+                    tile_type=data.get("type", "FACT"),
+                    topic_tags=data.get("topic_tags", []),
+                    one_line_takeaway=data.get("one_line_takeaway", "") or a.title[:120],
+                    confidence=float(data.get("confidence", 0.5)),
+                )
+            )
         except Exception:
             tiles.append(fallback_tile(a))
+
     return tiles
 
 async def summarize_cluster(articles: List[Article]) -> ClusterSummary:
-    if not OPENAI_API_KEY:
+    # ✅ 无 key 直接 fallback，不会调用 Gemini
+    if not _has_real_gemini_key():
         return fallback_cluster_summary(articles)
 
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    import google.generativeai as genai
+    import json
+
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
     payload = {
-        "items": [{"title":a.title,"snippet":a.snippet,"source":a.source,"published_at":a.published_at} for a in articles[:25]]
+        "items": [
+            {
+                "title": a.title,
+                "snippet": a.snippet,
+                "source": a.source,
+                "published_at": a.published_at,
+            }
+            for a in articles[:25]
+        ]
     }
 
-    resp = await client.responses.create(
-        model="gpt-4.1-mini",
-        input=[
-            {"role":"system","content":"Summarize a news cluster as a mosaic story. Output strict JSON only."},
-            {"role":"user","content":str(payload)}
-        ],
-    )
-    import json
+    prompt = f"""Summarize a news cluster as a mosaic story. Output strict JSON only.
+
+{json.dumps(payload)}
+
+Respond with JSON containing: cluster_title (string), whole_story (object with what_happened, why_it_matters list, what_to_watch list), timeline (list of objects with time and event)."""
+
     try:
-        data = json.loads(resp.output_text.strip())
+        resp = model.generate_content(prompt)
+        text = resp.text.strip()
+        # Extract JSON from response (may be wrapped in markdown code blocks)
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+        
+        data = json.loads(text)
         return ClusterSummary(
             cluster_title=data["cluster_title"],
             what_happened=data["whole_story"]["what_happened"],

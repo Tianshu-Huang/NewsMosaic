@@ -1,4 +1,4 @@
-import { Cluster, Tile } from "../api";
+import type { Cluster, Tile } from "../api";
 
 function typeClass(t: string) {
   // 不指定具体颜色也行，但 demo 会更炫；你们也可换成 Tailwind 配色
