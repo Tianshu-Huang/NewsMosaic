@@ -4,18 +4,24 @@ from .models import Article
 from .settings import NEWS_API_KEY
 from .sample_data import SAMPLE_ARTICLES
 
-
 def _make_id(title: str, source: str, published_at: str) -> str:
     raw = f"{title}|{source}|{published_at}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:16]
 
-async def fetch_news(query: str, days: int, max_articles: int) -> list[Article]:
+def _has_real_newsapi_key() -> bool:
     if not NEWS_API_KEY:
-    # No API key -> return mock data so the demo still works
+        return False
+    k = NEWS_API_KEY.strip()
+    if k.lower() in {"xxxx", "your_key_here", "replace_me"}:
+        return False
+    return True
+
+async def fetch_news(query: str, days: int, max_articles: int) -> list[Article]:
+    # ✅ 没有真实 key：直接用 mock 数据
+    if not _has_real_newsapi_key():
         return SAMPLE_ARTICLES[:max_articles]
 
-
-    # NewsAPI /v2/everything
+    # 否则走 NewsAPI
     url = "https://newsapi.org/v2/everything"
     params = {
         "q": query,
