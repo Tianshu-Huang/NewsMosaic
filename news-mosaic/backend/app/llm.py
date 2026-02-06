@@ -1,16 +1,15 @@
 from typing import List
 from .models import Article, Tile, ClusterSummary
-from .settings import OPENAI_API_KEY
+from .settings import GEMINI_API_KEY
+import google.generativeai as genai
+import json
 
-def _has_real_openai_key() -> bool:
+def _has_real_gemini_key() -> bool:
     # 避免占位符 "xxxx" 触发请求
-    if not OPENAI_API_KEY:
+    if not GEMINI_API_KEY:
         return False
-    k = OPENAI_API_KEY.strip()
+    k = GEMINI_API_KEY.strip()
     if k.lower() in {"xxxx", "your_key_here", "replace_me"}:
-        return False
-    # OpenAI key 通常以 "sk-" 开头（不是严格校验，但足够防误用）
-    if not k.startswith("sk-"):
         return False
     return True
 
@@ -42,15 +41,12 @@ def fallback_cluster_summary(articles: List[Article]) -> ClusterSummary:
     )
 
 async def classify_tiles(articles: List[Article]) -> List[Tile]:
-    # ✅ 无 key 直接 fallback，不会调用 OpenAI
-    if not _has_real_openai_key():
+    # ✅ 无 key 直接 fallback，不会调用 Gemini
+    if not _has_real_gemini_key():
         return [fallback_tile(a) for a in articles]
 
-    # 有真实 key 才调用 OpenAI
-    from openai import AsyncOpenAI
-    import json
-
-    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
     tiles: List[Tile] = []
     for a in articles:
@@ -60,15 +56,21 @@ async def classify_tiles(articles: List[Article]) -> List[Tile]:
             "source": a.source,
             "published_at": a.published_at,
         }
-        resp = await client.responses.create(
-            model="gpt-4.1-mini",
-            input=[
-                {"role": "system", "content": "You label news fragments for a mosaic board. Output strict JSON only."},
-                {"role": "user", "content": json.dumps(payload)},
-            ],
-        )
-        text = resp.output_text.strip()
+        prompt = f"""You label news fragments for a mosaic board. Output strict JSON only.
+
+{json.dumps(payload)}
+
+Respond with JSON containing: type (FACT/ANALYSIS/OPINION/UNVERIFIED), topic_tags (list), one_line_takeaway (string), confidence (0-1 float)."""
+        
         try:
+            resp = model.generate_content(prompt)
+            text = resp.text.strip()
+            # Extract JSON from response (may be wrapped in markdown code blocks)
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0]
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0]
+            
             data = json.loads(text)
             tiles.append(
                 Tile(
@@ -85,14 +87,12 @@ async def classify_tiles(articles: List[Article]) -> List[Tile]:
     return tiles
 
 async def summarize_cluster(articles: List[Article]) -> ClusterSummary:
-    # ✅ 无 key 直接 fallback，不会调用 OpenAI
-    if not _has_real_openai_key():
+    # ✅ 无 key 直接 fallback，不会调用 Gemini
+    if not _has_real_gemini_key():
         return fallback_cluster_summary(articles)
 
-    from openai import AsyncOpenAI
-    import json
-
-    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
     payload = {
         "items": [
@@ -106,16 +106,22 @@ async def summarize_cluster(articles: List[Article]) -> ClusterSummary:
         ]
     }
 
-    resp = await client.responses.create(
-        model="gpt-4.1-mini",
-        input=[
-            {"role": "system", "content": "Summarize a news cluster as a mosaic story. Output strict JSON only."},
-            {"role": "user", "content": json.dumps(payload)},
-        ],
-    )
+    prompt = f"""Summarize a news cluster as a mosaic story. Output strict JSON only.
+
+{json.dumps(payload)}
+
+Respond with JSON containing: cluster_title (string), whole_story (object with what_happened, why_it_matters list, what_to_watch list), timeline (list of objects with time and event)."""
 
     try:
-        data = json.loads(resp.output_text.strip())
+        resp = model.generate_content(prompt)
+        text = resp.text.strip()
+        # Extract JSON from response (may be wrapped in markdown code blocks)
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+        
+        data = json.loads(text)
         return ClusterSummary(
             cluster_title=data["cluster_title"],
             what_happened=data["whole_story"]["what_happened"],
