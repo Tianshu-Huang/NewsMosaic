@@ -19,6 +19,9 @@ type Tile = {
   one_line_takeaway?: string;
   tile_type?: string; // FACT / ANALYSIS / OPINION / ...
   [k: string]: any;
+  valence?: number;        // [-1, 1]
+  intensity?: number;      // [0, 1]
+  intensity_level?: string;
 };
 
 type Cluster = {
@@ -71,10 +74,17 @@ function tileDisplayTime(tile: Tile): string {
   }
 }
 
-// Prefer explicit tone if you have it; otherwise try to infer from meta/one_line_takeaway
-function tileTone(tile: Tile): "positive" | "neutral" | "critical" {
-  const guess = `${tile.tone || ""} ${tile.meta || ""} ${tile.one_line_takeaway || ""}`;
-  return normalizeTone(guess);
+function emotionBucket(tile: Tile): "positive" | "neutral" | "critical" {
+  const v = Number(tile.valence ?? 0);
+  if (v >= 0.10) return "positive";
+  if (v <= -0.10) return "critical";
+  return "neutral";
+}
+
+function tileIntensity01(tile: Tile): number {
+  const x = Number(tile.intensity ?? 0);
+  if (!Number.isFinite(x)) return 0;
+  return Math.max(0, Math.min(1, x));
 }
 
 function buildSunData(query: string, clusters: Cluster[]): SunNode {
@@ -91,7 +101,8 @@ function buildSunData(query: string, clusters: Cluster[]): SunNode {
       };
 
       for (const tile of tiles) {
-        buckets[tileTone(tile)].push(tile);
+        buckets[emotionBucket(tile)].push(tile);
+        // buckets[tileTone(tile)].push(tile);
       }
 
       return {
@@ -134,7 +145,7 @@ function Sunburst({
     const root = d3
       .hierarchy<any>(data as any)
       .sum((d) => d.value || 0)
-      .sort(() => 0); // prevent implicit ordering
+      .sort(() => 0);
 
     const partition = d3.partition<any>().size([2 * Math.PI, radius]);
     partition(root);
@@ -146,31 +157,57 @@ function Sunburst({
       .innerRadius((d) => d.y0)
       .outerRadius((d) => d.y1);
 
-    const clusters = root.children?.map((d) => String(d.data.name)) || [];
-    const color = d3.scaleOrdinal<string, string>().domain(clusters).range(d3.schemeTableau10 as any);
+    function tileIntensity01_local(tile: any): number {
+      const x = Number(tile?.intensity ?? 0);
+      if (!Number.isFinite(x)) return 0;
+      return Math.max(0, Math.min(1, x));
+    }
 
     function fillFor(d: any) {
-      const cluster = d.ancestors().find((x: any) => x.depth === 1)?.data?.name;
-      const base = color(String(cluster || "x"));
       const name = String(d.data.name);
 
-      // depth2 buckets
-      if (name === "positive") return d3.color(base)!.brighter(0.8).formatHex();
-      if (name === "neutral") return d3.color(base)!.brighter(0.3).formatHex();
-      if (name === "critical") return d3.color(base)!.darker(0.3).formatHex();
-      return base;
+      // depth1: cluster ring
+      if (d.depth === 1) return "#f2f2f2";
+
+      // depth2: bucket ring
+      if (d.depth === 2) {
+        if (name === "positive") return "#bfe8c8";
+        if (name === "neutral") return "#e6e6e6";
+        if (name === "critical") return "#f3c1c1";
+        return "#e6e6e6";
+      }
+
+      // depth3: leaf tiles
+      const tile = d.data?.meta?.tile;
+      if (!tile) return "#ddd";
+
+      const bucket = (d.data?.meta?.bucket || "neutral") as "positive" | "neutral" | "critical";
+      const inten = tileIntensity01_local(tile);
+
+      const light =
+        bucket === "positive" ? "#dff7e6" :
+        bucket === "critical" ? "#fde2e2" :
+        "#f0f0f0";
+
+      const dark =
+        bucket === "positive" ? "#1b7f3a" :
+        bucket === "critical" ? "#b42318" :
+        "#555555";
+
+      return d3.interpolateRgb(light, dark)(inten);
     }
 
     const nodes = root.descendants().filter((d) => d.depth > 0);
+    console.log("sunburst root children", root.children?.length, "nodes", nodes.length);
 
-    // build paths as plain data to render with JSX
+
     return {
       viewBox: `${-w / 2} ${-h / 2} ${w} ${h}`,
       nodes: nodes.map((d) => ({
         key: d.data.name + "|" + d.depth + "|" + d.x0 + "|" + d.y0,
         d,
         path: arc(d) || "",
-        fill: d.children ? fillFor(d) : fillFor(d),
+        fill: fillFor(d),
         clickable: !d.children && !!d.data?.meta,
         title:
           !d.children && d.data?.meta?.tile
@@ -184,31 +221,35 @@ function Sunburst({
   }, [data, width, height]);
 
   return (
-    <svg viewBox={svg.viewBox} style={{ width: "100%", maxWidth: width, height }}>
+    <svg viewBox={svg.viewBox} width={width} height={height} aria-label="Mosaic sunburst">
       <g>
         {svg.nodes.map((n) => (
           <path
             key={n.key}
             d={n.path}
             fill={n.fill}
-            stroke="white"
-            strokeWidth={1}
-            style={{ cursor: n.clickable ? "pointer" : "default" }}
+            stroke="#ffffff"
+            strokeWidth={0.6}
             onClick={() => {
               if (n.clickable) onPick(n.d.data.meta);
             }}
+            style={{ cursor: n.clickable ? "pointer" : "default" }}
           >
             <title>{n.title}</title>
           </path>
         ))}
-
-        <text textAnchor="middle" dy="0.35em" style={{ fontSize: 14, fontWeight: 700 }}>
-          {svg.centerText}
-        </text>
-        <text textAnchor="middle" dy="1.8em" style={{ fontSize: 12, opacity: 0.7 }}>
-          click a slice
-        </text>
       </g>
+      <text
+        x={0}
+        y={0}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize={13}
+        fontWeight={600}
+        fill="#444"
+      >
+        {svg.centerText}
+      </text>
     </svg>
   );
 }
@@ -298,9 +339,6 @@ export default function Mosaic() {
                         </span>
                       ) : null}
 
-                      <span style={{ fontSize: 12, padding: "4px 8px", borderRadius: 999, background: "#f2f2f2" }}>
-                        tone: {tileTone(pickedTile)}
-                      </span>
 
                       {tileDisplayUrl(pickedTile) ? (
                         <a href={tileDisplayUrl(pickedTile)} target="_blank" rel="noreferrer">

@@ -3,6 +3,8 @@ from .models import Article, Tile, ClusterSummary
 from .settings import GEMINI_API_KEY
 import google.generativeai as genai
 import json
+from .emotion import emotion_scores, intensity_level
+
 
 def _has_real_gemini_key() -> bool:
     # 避免占位符 "xxxx" 触发请求
@@ -15,12 +17,19 @@ def _has_real_gemini_key() -> bool:
 
 def fallback_tile(article: Article) -> Tile:
     # 简单用规则：所有 tile 都当 FACT，takeaway 用标题
+    text = f"{article.title}. {article.snippet or ''}"
+    emo = emotion_scores(text)
+    lvl = intensity_level(emo["intensity"])
+
     return Tile(
         article=article,
         tile_type="FACT",
         topic_tags=[],
         one_line_takeaway=(article.snippet or article.title)[:140],
         confidence=0.4,
+        valence=emo["valence"],
+        intensity=emo["intensity"],
+        intensity_level=lvl,
     )
 
 def fallback_cluster_summary(articles: List[Article]) -> ClusterSummary:
@@ -71,6 +80,10 @@ Respond with JSON containing: type (FACT/ANALYSIS/OPINION/UNVERIFIED), topic_tag
             elif "```" in text:
                 text = text.split("```")[1].split("```")[0]
             
+            emo = emotion_scores(f"{a.title}. {a.snippet or ''}")
+            lvl = intensity_level(emo["intensity"])
+
+            
             data = json.loads(text)
             tiles.append(
                 Tile(
@@ -79,6 +92,9 @@ Respond with JSON containing: type (FACT/ANALYSIS/OPINION/UNVERIFIED), topic_tag
                     topic_tags=data.get("topic_tags", []),
                     one_line_takeaway=data.get("one_line_takeaway", "") or a.title[:120],
                     confidence=float(data.get("confidence", 0.5)),
+                    valence=emo["valence"],
+                    intensity=emo["intensity"],
+                    intensity_level=lvl,
                 )
             )
         except Exception:

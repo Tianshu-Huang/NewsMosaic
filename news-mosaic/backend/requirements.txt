@@ -6,3 +6,4 @@ httpx
 numpy
 scikit-learn
 google-generativeai
+nltk
