@@ -124,8 +124,8 @@ function buildSunData(query: string, clusters: Cluster[]): SunNode {
  */
 function Sunburst({
   data,
-  width = 740,
-  height = 520,
+  width = 780,
+  height = 560,
   onPick,
   activeClusterName,
 }: {
@@ -283,8 +283,6 @@ function Sunburst({
   );
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 /* -----------------------------
    Mosaic Loading Overlay (inline)
    - Zero deps, pure CSS animation
@@ -448,264 +446,7 @@ function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: str
                   ["--d" as any]: `${t.delay}s`,
                   ["--t" as any]: `${t.dur}s`,
 
-                   // NEW
-                  ["--amp" as any]: `${t.amp}deg`,
-                  ["--ph" as any]: `${t.phase}s`,
-                  ["--axis" as any]: t.flipAxis,
-                } as React.CSSProperties
-              }
-            >
-              <div className="ml-inner" />
-            </div>
-          ))}
-        </div>
-
-        <div className="ml-sweep" />
-        <div className="ml-center">
-          <div className="ml-pill">
-            <span className="ml-dot" />
-            {label || "Building mosaic…"}
-          </div>
-          <div className="ml-sub">Fetching clusters & building tiles…</div>
-        </div>
-        <div className="ml-vignette" />
-      </div>
-    </>
-  );
-}
-
-/* -----------------------------
-   Page
------------------------------- */
-=======
-function EmotionLegend() {
-  const rowStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    marginTop: 8,
-  };
-
-  const barStyle = (from: string, to: string): React.CSSProperties => ({
-    width: 140,
-    height: 10,
-    borderRadius: 999,
-    background: `linear-gradient(90deg, ${from}, ${to})`,
-    border: "1px solid rgba(0,0,0,0.08)",
-  });
-
-  const labelStyle: React.CSSProperties = { fontSize: 12, opacity: 0.85, width: 54 };
-
-  return (
-    <div
-      style={{
-        position: "absolute",
-        right: 14,
-        bottom: 14,
-        padding: "12px 12px 10px",
-        borderRadius: 14,
-        background: "rgba(255,255,255,0.92)",
-        border: "1px solid rgba(0,0,0,0.08)",
-        boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-        backdropFilter: "blur(6px)",
-        zIndex: 10,
-        width: 260,
-        pointerEvents: "none", // 防止挡住点击饼图（建议）
-      }}
-    >
-      <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>Color meaning</div>
-
-      <div style={{ fontSize: 12, opacity: 0.75, display: "flex", justifyContent: "space-between" }}>
-        <span>low intensity</span>
-        <span>high intensity</span>
-      </div>
-
-      <div style={rowStyle}>
-        <div style={labelStyle}>positive</div>
-        <div style={barStyle("#dff7e6", "#1b7f3a")} />
-      </div>
-
-      <div style={rowStyle}>
-        <div style={labelStyle}>neutral</div>
-        <div style={barStyle("#f0f0f0", "#555555")} />
-      </div>
-
-      <div style={rowStyle}>
-        <div style={labelStyle}>critical</div>
-        <div style={barStyle("#fde2e2", "#b42318")} />
-      </div>
-    </div>
-  );
-}
-
->>>>>>> 5331ee9f ([feature] LLM summary)
-
-=======
->>>>>>> c59cd5cd ([fix] Errors after merge)
-/* -----------------------------
-   Mosaic Loading Overlay (inline)
-   - Zero deps, pure CSS animation
------------------------------- */
-
-function mulberry32(seed: number) {
-  let t = seed >>> 0;
-  return function () {
-    t += 0x6d2b79f5;
-    let x = Math.imul(t ^ (t >>> 15), 1 | t);
-    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
-    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function clamp(n: number, a: number, b: number) {
-  return Math.max(a, Math.min(b, n));
-}
-
-type LoadingTile = {
-  id: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  hue: number;
-  sat: number;
-  lig: number;
-  delay: number;
-  dur: number;
-
-  // NEW: fish-scale flip controls
-  flipAxis: "x" | "y"; // rotateX or rotateY
-  amp: number;         // rotation amplitude (deg)
-  phase: number;       // phase offset (s)
-};
-
-function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: string; seed: number }) {
-  const tiles = useMemo(() => {
-    const cols = 14;
-    const rows = 9;
-    const rand = mulberry32(seed);
-
-    const list: LoadingTile[] = [];
-    const used = new Set<string>();
-    const key = (c: number, r: number) => `${c},${r}`;
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (used.has(key(c, r))) continue;
-
-        const pick = rand();
-        let w = 1;
-        let h = 1;
-        if (pick > 0.88) {
-          w = 2;
-          h = 2;
-        } else if (pick > 0.74) {
-          w = 2;
-          h = 1;
-        } else if (pick > 0.60) {
-          w = 1;
-          h = 2;
-        }
-
-        if (c + w > cols) w = 1;
-        if (r + h > rows) h = 1;
-
-        for (let rr = r; rr < r + h; rr++) {
-          for (let cc = c; cc < c + w; cc++) {
-            used.add(key(cc, rr));
-          }
-        }
-
-        const hue = Math.floor(rand() * 360);
-        const sat = clamp(55 + rand() * 25, 45, 85);
-        const lig = clamp(32 + rand() * 28, 26, 64);
-        const flipAxis = rand() > 0.5 ? "y" : "x";
-        const amp = 10 + rand() * 18;     // 10~28deg
-        const phase = rand() * 1.6;       // 0~1.6s
-
-        list.push({
-          id: `${c}-${r}`,
-          x: c,
-          y: r,
-          w,
-          h,
-          hue,
-          sat,
-          lig,
-          delay: rand() * 0.8,
-          dur: 1.8 + rand() * 1.8,
-
-          flipAxis,
-          amp,
-          phase,
-        });
-      }
-    }
-
-    return { cols, rows, list };
-  }, [seed]);
-
-  // inline styles so you don't need a new css file
-  const css = `
-  .ml-wrap{position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:0;transition:opacity 220ms ease;
-    background:radial-gradient(1100px 680px at 10% 5%, #ffffff 0%, #f4f6fb 35%, #eef1f7 70%, #e8ebf2 100%);}
-  .ml-wrap.is-on{opacity:1}
-  .ml-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--cols),1fr);grid-template-rows:repeat(var(--rows),1fr);
-    gap:10px;padding:18px;}
-  .ml-tile{grid-column:calc(var(--x) + 1)/span var(--w);grid-row:calc(var(--y) + 1)/span var(--h);border-radius:16px;overflow:hidden;
-    box-shadow:0 10px 30px rgba(20,24,35,.10),0 2px 8px rgba(20,24,35,.08);transform:translateZ(0);}
-  .ml-inner{width:100%;height:100%;
-    background:radial-gradient(420px 240px at 25% 20%, rgba(255,255,255,.55), rgba(255,255,255,0) 55%),
-    linear-gradient(135deg,hsla(var(--hue),var(--sat),calc(var(--lig) + 14%),.92),hsla(calc(var(--hue) + 22),calc(var(--sat) - 10%),calc(var(--lig) - 4%),.92));
-    border:1px solid rgba(255,255,255,.55);backdrop-filter:blur(10px);
-    animation:mlPulse var(--t) ease-in-out var(--d) infinite;}
-  @keyframes mlPulse{0%{transform:translateY(0) scale(1);opacity:.88;filter:blur(0) saturate(1.05)}
-    35%{transform:translateY(-4px) scale(1.01);opacity:1;filter:blur(0) saturate(1.12)}
-    70%{transform:translateY(3px) scale(.995);opacity:.92;filter:blur(.2px) saturate(1.05)}
-    100%{transform:translateY(0) scale(1);opacity:.88;filter:blur(0) saturate(1.05)}}
-  .ml-sweep{position:absolute;inset:-40%;background:linear-gradient(135deg, rgba(255,255,255,0) 35%, rgba(255,255,255,.55) 50%, rgba(255,255,255,0) 65%);
-    transform:translateX(-35%) translateY(-35%);animation:mlSweep 1.9s ease-in-out infinite;opacity:.25;pointer-events:none;}
-  @keyframes mlSweep{0%{transform:translateX(-35%) translateY(-35%)}50%{transform:translateX(10%) translateY(10%)}100%{transform:translateX(45%) translateY(45%)}}
-  .ml-center{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;}
-  .ml-pill{display:inline-flex;align-items:center;gap:10px;padding:12px 14px;border-radius:999px;background:rgba(255,255,255,.72);
-    border:1px solid rgba(18,20,28,.10);box-shadow:0 18px 50px rgba(20,24,35,.12);backdrop-filter:blur(12px);
-    font-weight:900;letter-spacing:.02em;color:rgba(18,20,28,.72);}
-  .ml-dot{width:10px;height:10px;border-radius:999px;background:linear-gradient(135deg,#ff4fd8,#7c5cff);box-shadow:0 6px 18px rgba(124,92,255,.25);
-    animation:mlDot .9s ease-in-out infinite;}
-  @keyframes mlDot{0%,100%{transform:scale(.9);opacity:.7}50%{transform:scale(1.15);opacity:1}}
-  .ml-sub{margin-top:10px;font-size:12px;color:rgba(18,20,28,.55)}
-  .ml-vignette{position:absolute;inset:-40px;pointer-events:none;background:radial-gradient(1200px 650px at 50% 40%, rgba(0,0,0,0) 58%, rgba(0,0,0,.10) 100%);}
-  `;
-
-  return (
-    <>
-      <style>{css}</style>
-      <div className={`ml-wrap ${loading ? "is-on" : ""}`} aria-hidden={!loading}>
-        <div
-          className="ml-grid"
-          style={
-            {
-              ["--cols" as any]: tiles.cols,
-              ["--rows" as any]: tiles.rows,
-            } as React.CSSProperties
-          }
-        >
-          {tiles.list.map((t) => (
-            <div
-              key={t.id}
-              className="ml-tile"
-              style={
-                {
-                  ["--x" as any]: t.x,
-                  ["--y" as any]: t.y,
-                  ["--w" as any]: t.w,
-                  ["--h" as any]: t.h,
-                  ["--hue" as any]: t.hue,
-                  ["--sat" as any]: `${t.sat}%`,
-                  ["--lig" as any]: `${t.lig}%`,
-                  ["--d" as any]: `${t.delay}s`,
-                  ["--t" as any]: `${t.dur}s`,
-
-                   // NEW
+                  // NEW
                   ["--amp" as any]: `${t.amp}deg`,
                   ["--ph" as any]: `${t.phase}s`,
                   ["--axis" as any]: t.flipAxis,
@@ -757,8 +498,12 @@ function EmotionLegend() {
     <div
       style={{
         position: "absolute",
-        right: 14,
-        bottom: 14,
+        right: 0,
+        bottom: 0,
+        transform: "translate(0, 0)",
+
+        marginRight: 6,
+        marginBottom: 6,
         padding: "12px 12px 10px",
         borderRadius: 14,
         background: "rgba(255,255,255,0.92)",
@@ -827,24 +572,9 @@ export default function Mosaic() {
     for (let i = 0; i < query.length; i++) s = (s * 31 + query.charCodeAt(i)) >>> 0;
     return s;
   }, [query]);
-<<<<<<< HEAD
   const activeCluster =
     clusters.find((c) => c.cluster_id === activeClusterId) || clusters[0] || null;
 
-<<<<<<< HEAD
-=======
-  // 让 loading 的配色“跟 query 绑定”——同一关键词颜色稳定
-  const loadingSeed = useMemo(() => {
-    let s = 2026;
-    for (let i = 0; i < query.length; i++) s = (s * 31 + query.charCodeAt(i)) >>> 0;
-    return s;
-  }, [query]);
-=======
->>>>>>> 0c59c1ff ([fix] merge errors)
-  const activeCluster =
-    clusters.find((c) => c.cluster_id === activeClusterId) || clusters[0] || null;
-
->>>>>>> 1d1704b9 ([feature] summary from AI)
   const activeSummary = activeCluster?.summary || null;
 
   const activeClusterName =
@@ -852,21 +582,7 @@ export default function Mosaic() {
     (activeCluster ? `Cluster ${activeCluster.cluster_id}` : null);
 
   const showLegend = clusters.length > 0;
-<<<<<<< HEAD
-=======
 
-<<<<<<< HEAD
-
-  // 让 loading 的配色“跟 query 绑定”——同一关键词颜色稳定
-  const loadingSeed = useMemo(() => {
-    let s = 2026;
-    for (let i = 0; i < query.length; i++) s = (s * 31 + query.charCodeAt(i)) >>> 0;
-    return s;
-  }, [query]);
->>>>>>> 1d1704b9 ([feature] summary from AI)
-
-=======
->>>>>>> 3d252d32 ([fix] Errors after merge)
   return (
     <div className="layout">
       {/* ✅ Loading 覆盖层：直接放在页面最顶层 */}
@@ -878,15 +594,7 @@ export default function Mosaic() {
           <h1>News Mosaic</h1>
         </div>
 
-<<<<<<< HEAD
-<<<<<<< HEAD
         <div className="search" style={{ maxWidth: 720, width: "100%" }}>
-=======
-        <div className="search" style={{ width: "200%" }} style={{ width: "200%" }}>
->>>>>>> 1d1704b9 ([feature] summary from AI)
-=======
-        <div className="search" style={{ maxWidth: 720, width: "100%" }}>
->>>>>>> 3d252d32 ([fix] Errors after merge)
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search topic..." />
           <button
             onClick={run}
@@ -907,193 +615,80 @@ export default function Mosaic() {
         <div className="main" style={{ width: "100%" }}>
           {clusters.length > 0 ? (
             <div
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 0c59c1ff ([fix] merge errors)
-  style={{
-    display: "grid",
-    gridTemplateColumns: "minmax(740px, 860px) minmax(420px, 560px)",
-    gap: 24,
-    alignItems: "start",
-    justifyContent: "center",
-  }}
->
-<<<<<<< HEAD
-
-              <div style={{ display: "flex", justifyContent: "center" }}>
-  <div
-    style={{
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      gap: 10,
-      width: "100%",
-      maxWidth: 980, // ✅ 左侧整体可以更宽一点
-      boxSizing: "border-box",
-    }}
-  >
-    {/* 标题 */}
-    <div
-  title={activeClusterName || query} // 仍然保留 hover 全文
-  style={{
-    width: "min(860px, 100%)",
-    textAlign: "center",
-    fontWeight: 800,
-    fontSize: 18,
-    lineHeight: 1.25,
-    color: "#222",
-    padding: "6px 10px",
-
-    // ✅ 不省略：允许换行
-    whiteSpace: "normal",
-    overflow: "visible",
-    textOverflow: "clip",
-    wordBreak: "break-word",     // 长词也能断
-    overflowWrap: "anywhere",    // URL/超长 token 也能断
-  }}
->
-  {activeClusterName || query}
-</div>
-
-
-    {/* ✅ 舞台：给 legend 预留右侧/底部空间，但不压缩饼图 */}
-    <div
-      style={{
-        position: "relative",
-        width: showLegend ? 740 + 280 : 740,   // ✅ 右侧给 legend 留 280px
-        height: showLegend ? 520 + 120 : 520,  // ✅ 底部给 legend 留 120px
-        maxWidth: "100%",
-      }}
-    >
-      {/* 饼图固定放左上角 */}
-      <div style={{ position: "absolute", left: 0, top: 0 }}>
-        <Sunburst
-          data={sunData}
-          width={740}
-          height={520}
-          onPick={(meta) => {
-            if (!meta) return;
-
-            if (meta.kind === "tile") {
-              setPicked(meta);
-              if (meta.clusterId) setActiveClusterId(meta.clusterId);
-              return;
-            }
-
-            if (meta.kind === "cluster" || meta.kind === "bucket") {
-              setPicked(null);
-              if (meta.clusterId) setActiveClusterId(meta.clusterId);
-              return;
-            }
-
-            if (meta.tile) {
-              setPicked(meta);
-              if (meta.clusterId) setActiveClusterId(meta.clusterId);
-            } else {
-              setPicked(null);
-              if (meta.clusterId) setActiveClusterId(meta.clusterId);
-            }
-          }}
-          activeClusterName={activeClusterName}
-        />
-      </div>
-
-      {/* legend 固定在舞台右下角（在空位里，不会压到图） */}
-      {showLegend ? (
-        <div
-          style={{
-            position: "absolute",
-            right: 12,
-            bottom: 12,
-            pointerEvents: "none",
-          }}
-        >
-          <EmotionLegend />
-        </div>
-      ) : null}
-    </div>
-  </div>
-</div>
-=======
               style={{
                 display: "grid",
                 gridTemplateColumns: "minmax(740px, 860px) minmax(420px, 560px)",
-                gap: 24,
-                alignItems: "start",
                 justifyContent: "center",
+                gap: 16,
+                alignItems: "start",
               }}
             >
-=======
->>>>>>> 0c59c1ff ([fix] merge errors)
-
               <div style={{ display: "flex", justifyContent: "center" }}>
-  <div
-    style={{
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      gap: 10,
-      width: "100%",
-      maxWidth: 980, // ✅ 左侧整体可以更宽一点
-      boxSizing: "border-box",
-    }}
-  >
-    {/* 标题 */}
-    <div
-  title={activeClusterName || query} // 仍然保留 hover 全文
-  style={{
-    width: "min(860px, 100%)",
-    textAlign: "center",
-    fontWeight: 800,
-    fontSize: 18,
-    lineHeight: 1.25,
-    color: "#222",
-    padding: "6px 10px",
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 10,
+                    width: "100%",
+                    maxWidth: 980, // ✅ 左侧整体可以更宽一点
+                    boxSizing: "border-box",
+                  }}
+                >
+                  {/* 标题 */}
+                  <div
+                    title={activeClusterName || query} // 仍然保留 hover 全文
+                    style={{
+                      width: "min(860px, 100%)",
+                      textAlign: "center",
+                      fontWeight: 800,
+                      fontSize: 18,
+                      lineHeight: 1.25,
+                      color: "#222",
+                      padding: "6px 10px",
 
-    // ✅ 不省略：允许换行
-    whiteSpace: "normal",
-    overflow: "visible",
-    textOverflow: "clip",
-    wordBreak: "break-word",     // 长词也能断
-    overflowWrap: "anywhere",    // URL/超长 token 也能断
-  }}
->
-  {activeClusterName || query}
-</div>
+                      // ✅ 不省略：允许换行
+                      whiteSpace: "normal",
+                      overflow: "visible",
+                      textOverflow: "clip",
+                      wordBreak: "break-word",     // 长词也能断
+                      overflowWrap: "anywhere",    // URL/超长 token 也能断
+                    }}
+                  >
+                    {activeClusterName || query}
+                  </div>
 
 
-    {/* ✅ 舞台：给 legend 预留右侧/底部空间，但不压缩饼图 */}
-    <div
-      style={{
-        position: "relative",
-        width: showLegend ? 740 + 280 : 740,   // ✅ 右侧给 legend 留 280px
-        height: showLegend ? 520 + 120 : 520,  // ✅ 底部给 legend 留 120px
-        maxWidth: "100%",
-      }}
-    >
-      {/* 饼图固定放左上角 */}
-      <div style={{ position: "absolute", left: 0, top: 0 }}>
-        <Sunburst
-          data={sunData}
-          width={740}
-          height={520}
-          onPick={(meta) => {
-            if (!meta) return;
+                  {/* ✅ 舞台：给 legend 预留右侧/底部空间，但不压缩饼图 */}
+                  <div
+                    style={{
+                      position: "relative",
+                      width: showLegend ? 740 + 280 : 740,   // ✅ 右侧给 legend 留 280px
+                      height: showLegend ? 520 + 120 : 520,  // ✅ 底部给 legend 留 120px
+                      maxWidth: "100%",
+                    }}
+                  >
+                    {/* 饼图固定放左上角 */}
+                    <div style={{ position: "absolute", left: 0, top: 0 }}>
+                      <Sunburst
+                        data={sunData}
+                        width={740}
+                        height={520}
+                        onPick={(meta) => {
+                          if (!meta) return;
 
-            if (meta.kind === "tile") {
-              setPicked(meta);
-              if (meta.clusterId) setActiveClusterId(meta.clusterId);
-              return;
-            }
+                          if (meta.kind === "tile") {
+                            setPicked(meta);
+                            if (meta.clusterId) setActiveClusterId(meta.clusterId);
+                            return;
+                          }
 
-            if (meta.kind === "cluster" || meta.kind === "bucket") {
-              setPicked(null);
-              if (meta.clusterId) setActiveClusterId(meta.clusterId);
-              return;
-            }
+                          if (meta.kind === "cluster" || meta.kind === "bucket") {
+                            setPicked(null);
+                            if (meta.clusterId) setActiveClusterId(meta.clusterId);
+                            return;
+                          }
 
-<<<<<<< HEAD
                           if (meta.tile) {
                             setPicked(meta);
                             if (meta.clusterId) setActiveClusterId(meta.clusterId);
@@ -1122,37 +717,7 @@ export default function Mosaic() {
                   </div>
                 </div>
               </div>
->>>>>>> 3d252d32 ([fix] Errors after merge)
-=======
-            if (meta.tile) {
-              setPicked(meta);
-              if (meta.clusterId) setActiveClusterId(meta.clusterId);
-            } else {
-              setPicked(null);
-              if (meta.clusterId) setActiveClusterId(meta.clusterId);
-            }
-          }}
-          activeClusterName={activeClusterName}
-        />
-      </div>
->>>>>>> 0c59c1ff ([fix] merge errors)
 
-      {/* legend 固定在舞台右下角（在空位里，不会压到图） */}
-      {showLegend ? (
-        <div
-          style={{
-            position: "absolute",
-            right: 12,
-            bottom: 12,
-            pointerEvents: "none",
-          }}
-        >
-          <EmotionLegend />
-        </div>
-      ) : null}
-    </div>
-  </div>
-</div>
 
               <div style={{ borderLeft: "1px solid #eee", paddingLeft: 16 }}>
                 {pickedTile ? (
