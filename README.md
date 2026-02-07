@@ -51,7 +51,7 @@ Each topic becomes a radial map of perspectives.
 
 Different topics produce very different perspective balances.
 
-![Mosaic ICE Example](screenshots/mosaic-ice.png)
+![Mosaic Climate Example](screenshots/mosaic-climate.png)
 
 ---
 
