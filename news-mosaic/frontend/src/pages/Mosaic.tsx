@@ -100,17 +100,20 @@ function buildSunData(query: string, clusters: Cluster[]): SunNode {
 
       return {
         name: clusterName,
+        meta: { kind: "cluster", clusterId: c.cluster_id, clusterName }, // ✅ 新增
         children: (["positive", "neutral", "critical"] as const)
           .filter((k) => buckets[k].length > 0)
           .map((k) => ({
             name: k,
+            meta: { kind: "bucket", clusterId: c.cluster_id, clusterName, bucket: k }, // ✅ 新增
             children: buckets[k].map((tile) => ({
               name: tileDisplayTitle(tile),
               value: 1,
-              meta: { tile, clusterId: c.cluster_id, clusterName, bucket: k },
+              meta: { kind: "tile", tile, clusterId: c.cluster_id, clusterName, bucket: k },
             })),
           })),
       };
+
     }),
   };
 }
@@ -124,11 +127,13 @@ function Sunburst({
   width = 740,
   height = 520,
   onPick,
+  activeClusterName,
 }: {
   data: SunNode;
   width?: number;
   height?: number;
   onPick: (meta: any) => void;
+  activeClusterName?: string | null;
 }) {
   const svg = useMemo(() => {
     const w = width;
@@ -154,7 +159,7 @@ function Sunburst({
       const name = String(d.data.name);
 
       // depth1: cluster ring
-      if (d.depth === 1) return "#f2f2f2";
+      if (d.depth === 1) return "#fafafa";
 
       // depth2: bucket ring
       if (d.depth === 2) {
@@ -173,74 +178,112 @@ function Sunburst({
 
       const light =
         bucket === "positive" ? "#dff7e6" :
-        bucket === "critical" ? "#fde2e2" :
-        "#f0f0f0";
+          bucket === "critical" ? "#fde2e2" :
+            "#f0f0f0";
 
       const dark =
         bucket === "positive" ? "#1b7f3a" :
-        bucket === "critical" ? "#b42318" :
-        "#555555";
+          bucket === "critical" ? "#b42318" :
+            "#555555";
 
       return d3.interpolateRgb(light, dark)(inten);
     }
 
-    const nodes = root.descendants().filter((d) => d.depth > 0);
-    console.log("sunburst root children", root.children?.length, "nodes", nodes.length);
+    const active = activeClusterName ? String(activeClusterName) : null;
 
+    const nodes = root.descendants().filter((d) => d.depth > 0);
 
     return {
       viewBox: `${-w / 2} ${-h / 2} ${w} ${h}`,
-      nodes: nodes.map((d) => ({
-        key: d.data.name + "|" + d.depth + "|" + d.x0 + "|" + d.y0,
-        d,
-        path: arc(d) || "",
-        fill: fillFor(d),
-        clickable: !d.children && !!d.data?.meta,
-        title:
-          !d.children && d.data?.meta?.tile
-            ? `${tileDisplayTitle(d.data.meta.tile)}\n${tileDisplaySource(d.data.meta.tile)} • ${tileDisplayTime(
+      nodes: nodes.map((d) => {
+        const clusterName = d.ancestors().find((x: any) => x.depth === 1)?.data?.name;
+        const isActiveCluster = active ? String(clusterName) === active : false;
+
+        return {
+          key: d.data.name + "|" + d.depth + "|" + d.x0 + "|" + d.y0,
+          d,
+          path: arc(d) || "",
+          fill: fillFor(d),
+          clickable: !!d.data?.meta,
+          isActiveCluster,
+          clusterName: String(clusterName || ""),
+          title:
+            !d.children && d.data?.meta?.tile
+              ? `${tileDisplayTitle(d.data.meta.tile)}\n${tileDisplaySource(d.data.meta.tile)} • ${tileDisplayTime(
                 d.data.meta.tile
               )}\n${d.data.meta.tile.one_line_takeaway || ""}`
-            : String(d.data.name),
-      })),
-      centerText: String((data as any).name || "Topic"),
+              : String(d.data.name),
+        };
+      }),
+      centerText: activeClusterName ? String(activeClusterName) : String((data as any).name || "Topic"),
     };
-  }, [data, width, height]);
+  }, [data, width, height, activeClusterName]);
 
   return (
     <svg viewBox={svg.viewBox} width={width} height={height} aria-label="Mosaic sunburst">
       <g>
-        {svg.nodes.map((n) => (
-          <path
-            key={n.key}
-            d={n.path}
-            fill={n.fill}
-            stroke="#ffffff"
-            strokeWidth={0.6}
-            onClick={() => {
-              if (n.clickable) onPick(n.d.data.meta);
-            }}
-            style={{ cursor: n.clickable ? "pointer" : "default" }}
-          >
-            <title>{n.title}</title>
-          </path>
-        ))}
+        {svg.nodes.map((n) => {
+          const active = activeClusterName ? String(activeClusterName) : null;
+
+          // cluster ring 是 depth=1 的扇区
+          const isClusterRing = n.d.depth === 1;
+
+          // 当前 path 属于哪个 cluster（对 depth=1 来说 clusterName 就是它自己；对其它层也能追溯）
+          const belongsToActiveCluster = active ? String(n.clusterName) === active : false;
+
+          // 只淡化“cluster ring 的其它扇区”，别影响叶子 tile 的可读性
+          const opacity =
+            active && isClusterRing ? (belongsToActiveCluster ? 1 : 0.25) : 1;
+
+          // 选中 cluster ring 给一点柔和的“浮起”效果
+          const filter =
+            active && isClusterRing && belongsToActiveCluster
+              ? "drop-shadow(0 6px 14px rgba(0,0,0,0.10))"
+              : "none";
+
+          const stroke = isClusterRing ? "#d9d9d9" : "#f4f4f4";
+          const strokeWidth = isClusterRing ? 4 : 1;
+
+
+          return (
+            <path
+              key={n.key}
+              d={n.path}
+              fill={n.fill}
+              stroke={stroke}
+              strokeWidth={strokeWidth}
+              opacity={opacity}
+              style={{
+                cursor: n.clickable ? "pointer" : "default",
+                filter,
+              }}
+              onClick={() => {
+                if (n.clickable) onPick(n.d.data.meta);
+              }}
+            >
+              <title>{n.title}</title>
+            </path>
+          );
+        })}
       </g>
+
+      {/* 中心文字建议保持短：显示 query 或提示，不要用 cluster title */}
       <text
         x={0}
         y={0}
         textAnchor="middle"
         dominantBaseline="middle"
-        fontSize={13}
+        fontSize={12}
         fontWeight={600}
-        fill="#444"
+        fill="#666"
       >
-        {svg.centerText}
+        Click A Tile
       </text>
     </svg>
   );
 }
 
+<<<<<<< HEAD
 /* -----------------------------
    Mosaic Loading Overlay (inline)
    - Zero deps, pure CSS animation
@@ -433,21 +476,86 @@ function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: str
 /* -----------------------------
    Page
 ------------------------------ */
+=======
+function EmotionLegend() {
+  const rowStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+  };
+
+  const barStyle = (from: string, to: string): React.CSSProperties => ({
+    width: 140,
+    height: 10,
+    borderRadius: 999,
+    background: `linear-gradient(90deg, ${from}, ${to})`,
+    border: "1px solid rgba(0,0,0,0.08)",
+  });
+
+  const labelStyle: React.CSSProperties = { fontSize: 12, opacity: 0.85, width: 54 };
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        right: 14,
+        bottom: 14,
+        padding: "12px 12px 10px",
+        borderRadius: 14,
+        background: "rgba(255,255,255,0.92)",
+        border: "1px solid rgba(0,0,0,0.08)",
+        boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+        backdropFilter: "blur(6px)",
+        zIndex: 10,
+        width: 260,
+        pointerEvents: "none", // 防止挡住点击饼图（建议）
+      }}
+    >
+      <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>Color meaning</div>
+
+      <div style={{ fontSize: 12, opacity: 0.75, display: "flex", justifyContent: "space-between" }}>
+        <span>low intensity</span>
+        <span>high intensity</span>
+      </div>
+
+      <div style={rowStyle}>
+        <div style={labelStyle}>positive</div>
+        <div style={barStyle("#dff7e6", "#1b7f3a")} />
+      </div>
+
+      <div style={rowStyle}>
+        <div style={labelStyle}>neutral</div>
+        <div style={barStyle("#f0f0f0", "#555555")} />
+      </div>
+
+      <div style={rowStyle}>
+        <div style={labelStyle}>critical</div>
+        <div style={barStyle("#fde2e2", "#b42318")} />
+      </div>
+    </div>
+  );
+}
+
+>>>>>>> 5331ee9f ([feature] LLM summary)
 
 export default function Mosaic() {
   const [query, setQuery] = useState("OpenAI");
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeClusterId, setActiveClusterId] = useState<string | null>(null);
 
   // clicked leaf info
   const [picked, setPicked] = useState<any | null>(null);
 
   async function run() {
     setLoading(true);
+
     try {
       const data = await buildMosaic(query);
       setClusters(data || []);
       setPicked(null);
+      setActiveClusterId((data && data[0]?.cluster_id) ? data[0].cluster_id : null);
     } finally {
       setLoading(false);
     }
@@ -455,6 +563,17 @@ export default function Mosaic() {
 
   const sunData = useMemo(() => buildSunData(query, clusters), [query, clusters]);
   const pickedTile: Tile | null = picked?.tile || null;
+  const activeCluster =
+    clusters.find((c) => c.cluster_id === activeClusterId) || clusters[0] || null;
+
+  const activeSummary = activeCluster?.summary || null;
+
+  const activeClusterName =
+    activeCluster?.summary?.cluster_title ||
+    (activeCluster ? `Cluster ${activeCluster.cluster_id}` : null);
+
+  const showLegend = clusters.length > 0;
+
 
   // 让 loading 的配色“跟 query 绑定”——同一关键词颜色稳定
   const loadingSeed = useMemo(() => {
@@ -503,19 +622,79 @@ export default function Mosaic() {
               }}
             >
               <div style={{ display: "flex", justifyContent: "center" }}>
-                <Sunburst data={sunData} onPick={(meta) => setPicked(meta)} />
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 10,
+                    position: "relative", // 关键：让 absolute legend 相对它定位
+                    width: 840,           // 建议：固定宽度，legend 才会落在图区域右下
+                    paddingRight: showLegend ? 140 : 0,
+                    paddingBottom: showLegend ? 110 : 0,
+                  }}
+                >
+                  {/* 上方标题 */}
+
+                  <div
+                    title={activeClusterName || query}
+                    style={{
+                      maxWidth: 740,
+                      textAlign: "center",
+                      fontWeight: 800,
+                      fontSize: 18,
+                      lineHeight: 1.25,
+                      color: "#222",
+                      padding: "6px 10px",
+                    }}
+                  >
+                    {(activeClusterName || query).length > 70
+                      ? (activeClusterName || query).slice(0, 70) + "…"
+                      : (activeClusterName || query)}
+                  </div>
+
+
+
+                  {/* 图本体 */}
+                  <Sunburst
+                    data={sunData}
+                    onPick={(meta) => {
+                      if (!meta) return;
+
+                      // 点击 tile -> article view
+                      if (meta.kind === "tile") {
+                        setPicked(meta);
+                        if (meta.clusterId) setActiveClusterId(meta.clusterId);
+                        return;
+                      }
+
+                      // 点击 cluster/bucket -> summary view
+                      if (meta.kind === "cluster" || meta.kind === "bucket") {
+                        setPicked(null); // ✅ 回到 summary
+                        if (meta.clusterId) setActiveClusterId(meta.clusterId);
+                        return;
+                      }
+
+                      // fallback（兼容旧数据）
+                      if (meta.tile) {
+                        setPicked(meta);
+                        if (meta.clusterId) setActiveClusterId(meta.clusterId);
+                      } else {
+                        setPicked(null);
+                        if (meta.clusterId) setActiveClusterId(meta.clusterId);
+                      }
+                    }}
+                    activeClusterName={activeClusterName}
+                  />
+                  {showLegend
+                    ? <EmotionLegend /> : null}
+                </div>
+
               </div>
 
               <div style={{ borderLeft: "1px solid #eee", paddingLeft: 16 }}>
-                {!pickedTile ? (
-                  <div className="empty">
-                    <div className="emptyTitle">Click a slice to read a different angle.</div>
-                    <div className="emptySub">No ranking. Explore the mosaic.</div>
-                    <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7, lineHeight: 1.6 }}>
-                      Buckets: <b>positive</b> / <b>neutral</b> / <b>critical</b> (based on tile.tone/meta/takeaway).
-                    </div>
-                  </div>
-                ) : (
+                {pickedTile ? (
+                  // ========== Article View ==========
                   <div>
                     <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
                       <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
@@ -558,15 +737,79 @@ export default function Mosaic() {
                         </span>
                       ) : null}
 
-
                       {tileDisplayUrl(pickedTile) ? (
                         <a href={tileDisplayUrl(pickedTile)} target="_blank" rel="noreferrer">
                           Open article ↗
                         </a>
                       ) : null}
                     </div>
+
+                  </div>
+                ) : (
+                  // ========== Summary View ==========
+                  <div>
+                    {!activeCluster ? (
+                      <div className="empty">
+                        <div className="emptyTitle">Search a topic to build your mosaic.</div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
+                          Cluster: <b>{activeSummary?.cluster_title || `Cluster ${activeCluster.cluster_id}`}</b> •{" "}
+                          {activeCluster.items?.length ?? 0} tiles
+                        </div>
+
+                        <h2 style={{ marginTop: 0 }}>{activeSummary?.cluster_title || "Summary"}</h2>
+
+                        {activeSummary?.what_happened ? (
+                          <p style={{ lineHeight: 1.55 }}>{activeSummary.what_happened}</p>
+                        ) : (
+                          <p style={{ opacity: 0.7 }}>No summary returned. (Check backend /mosaic response)</p>
+                        )}
+
+                        {Array.isArray(activeSummary?.why_it_matters) && activeSummary.why_it_matters.length > 0 ? (
+                          <>
+                            <h3 style={{ marginBottom: 6 }}>Why it matters</h3>
+                            <ul style={{ marginTop: 6 }}>
+                              {activeSummary.why_it_matters.slice(0, 4).map((x: string, i: number) => (
+                                <li key={i}>{x}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+
+                        {Array.isArray(activeSummary?.what_to_watch) && activeSummary.what_to_watch.length > 0 ? (
+                          <>
+                            <h3 style={{ marginBottom: 6 }}>What to watch</h3>
+                            <ul style={{ marginTop: 6 }}>
+                              {activeSummary.what_to_watch.slice(0, 4).map((x: string, i: number) => (
+                                <li key={i}>{x}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+
+                        {Array.isArray(activeSummary?.timeline) && activeSummary.timeline.length > 0 ? (
+                          <>
+                            <h3 style={{ marginBottom: 6 }}>Timeline</h3>
+                            <ul style={{ marginTop: 6 }}>
+                              {activeSummary.timeline.slice(0, 4).map((t: any, i: number) => (
+                                <li key={i}>
+                                  <b>{t.time}</b> — {t.event}
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+
+                        <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7 }}>
+                          Tip: click a tile on the left to read a specific article.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
+
               </div>
             </div>
           ) : (
