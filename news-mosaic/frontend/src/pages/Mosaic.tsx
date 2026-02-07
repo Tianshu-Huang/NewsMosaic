@@ -731,6 +731,66 @@ function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: str
 /* -----------------------------
    Page
 ------------------------------ */
+function EmotionLegend() {
+  const rowStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+  };
+
+  const barStyle = (from: string, to: string): React.CSSProperties => ({
+    width: 140,
+    height: 10,
+    borderRadius: 999,
+    background: `linear-gradient(90deg, ${from}, ${to})`,
+    border: "1px solid rgba(0,0,0,0.08)",
+  });
+
+  const labelStyle: React.CSSProperties = { fontSize: 12, opacity: 0.85, width: 54 };
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        right: 14,
+        bottom: 14,
+        padding: "12px 12px 10px",
+        borderRadius: 14,
+        background: "rgba(255,255,255,0.92)",
+        border: "1px solid rgba(0,0,0,0.08)",
+        boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+        backdropFilter: "blur(6px)",
+        zIndex: 10,
+        width: 260,
+        pointerEvents: "none", // 防止挡住点击饼图（建议）
+      }}
+    >
+      <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>Color meaning</div>
+
+      <div style={{ fontSize: 12, opacity: 0.75, display: "flex", justifyContent: "space-between" }}>
+        <span>low intensity</span>
+        <span>high intensity</span>
+      </div>
+
+      <div style={rowStyle}>
+        <div style={labelStyle}>positive</div>
+        <div style={barStyle("#dff7e6", "#1b7f3a")} />
+      </div>
+
+      <div style={rowStyle}>
+        <div style={labelStyle}>neutral</div>
+        <div style={barStyle("#f0f0f0", "#555555")} />
+      </div>
+
+      <div style={rowStyle}>
+        <div style={labelStyle}>critical</div>
+        <div style={barStyle("#fde2e2", "#b42318")} />
+      </div>
+    </div>
+  );
+}
+
 
 export default function Mosaic() {
   const [query, setQuery] = useState("OpenAI");
