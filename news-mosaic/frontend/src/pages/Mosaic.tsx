@@ -705,7 +705,7 @@ function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: str
                   ["--d" as any]: `${t.delay}s`,
                   ["--t" as any]: `${t.dur}s`,
 
-                  // NEW
+                   // NEW
                   ["--amp" as any]: `${t.amp}deg`,
                   ["--ph" as any]: `${t.phase}s`,
                   ["--axis" as any]: t.flipAxis,
@@ -756,14 +756,18 @@ function EmotionLegend() {
   return (
     <div
       style={{
+        position: "absolute",
+        right: 14,
+        bottom: 14,
         padding: "12px 12px 10px",
         borderRadius: 14,
         background: "rgba(255,255,255,0.92)",
         border: "1px solid rgba(0,0,0,0.08)",
         boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
         backdropFilter: "blur(6px)",
+        zIndex: 10,
         width: 260,
-        pointerEvents: "none",
+        pointerEvents: "none", // 防止挡住点击饼图（建议）
       }}
     >
       <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>Color meaning</div>
@@ -823,6 +827,7 @@ export default function Mosaic() {
     for (let i = 0; i < query.length; i++) s = (s * 31 + query.charCodeAt(i)) >>> 0;
     return s;
   }, [query]);
+<<<<<<< HEAD
   const activeCluster =
     clusters.find((c) => c.cluster_id === activeClusterId) || clusters[0] || null;
 
@@ -834,6 +839,8 @@ export default function Mosaic() {
     for (let i = 0; i < query.length; i++) s = (s * 31 + query.charCodeAt(i)) >>> 0;
     return s;
   }, [query]);
+=======
+>>>>>>> 0c59c1ff ([fix] merge errors)
   const activeCluster =
     clusters.find((c) => c.cluster_id === activeClusterId) || clusters[0] || null;
 
@@ -901,6 +908,9 @@ export default function Mosaic() {
           {clusters.length > 0 ? (
             <div
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 0c59c1ff ([fix] merge errors)
   style={{
     display: "grid",
     gridTemplateColumns: "minmax(740px, 860px) minmax(420px, 560px)",
@@ -909,6 +919,7 @@ export default function Mosaic() {
     justifyContent: "center",
   }}
 >
+<<<<<<< HEAD
 
               <div style={{ display: "flex", justifyContent: "center" }}>
   <div
@@ -1013,73 +1024,76 @@ export default function Mosaic() {
                 justifyContent: "center",
               }}
             >
+=======
+>>>>>>> 0c59c1ff ([fix] merge errors)
 
               <div style={{ display: "flex", justifyContent: "center" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: 10,
-                    width: "100%",
-                    maxWidth: 980, // ✅ 左侧整体可以更宽一点
-                    boxSizing: "border-box",
-                  }}
-                >
-                  {/* 标题 */}
-                  <div
-                    title={activeClusterName || query} // 仍然保留 hover 全文
-                    style={{
-                      width: "min(860px, 100%)",
-                      textAlign: "center",
-                      fontWeight: 800,
-                      fontSize: 18,
-                      lineHeight: 1.25,
-                      color: "#222",
-                      padding: "6px 10px",
+  <div
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 10,
+      width: "100%",
+      maxWidth: 980, // ✅ 左侧整体可以更宽一点
+      boxSizing: "border-box",
+    }}
+  >
+    {/* 标题 */}
+    <div
+  title={activeClusterName || query} // 仍然保留 hover 全文
+  style={{
+    width: "min(860px, 100%)",
+    textAlign: "center",
+    fontWeight: 800,
+    fontSize: 18,
+    lineHeight: 1.25,
+    color: "#222",
+    padding: "6px 10px",
 
-                      // ✅ 不省略：允许换行
-                      whiteSpace: "normal",
-                      overflow: "visible",
-                      textOverflow: "clip",
-                      wordBreak: "break-word",     // 长词也能断
-                      overflowWrap: "anywhere",    // URL/超长 token 也能断
-                    }}
-                  >
-                    {activeClusterName || query}
-                  </div>
+    // ✅ 不省略：允许换行
+    whiteSpace: "normal",
+    overflow: "visible",
+    textOverflow: "clip",
+    wordBreak: "break-word",     // 长词也能断
+    overflowWrap: "anywhere",    // URL/超长 token 也能断
+  }}
+>
+  {activeClusterName || query}
+</div>
 
 
-                  {/* ✅ 舞台：给 legend 预留右侧/底部空间，但不压缩饼图 */}
-                  <div
-                    style={{
-                      position: "relative",
-                      width: showLegend ? 740 + 280 : 740,   // ✅ 右侧给 legend 留 280px
-                      height: showLegend ? 520 + 120 : 520,  // ✅ 底部给 legend 留 120px
-                      maxWidth: "100%",
-                    }}
-                  >
-                    {/* 饼图固定放左上角 */}
-                    <div style={{ position: "absolute", left: 0, top: 0 }}>
-                      <Sunburst
-                        data={sunData}
-                        width={740}
-                        height={520}
-                        onPick={(meta) => {
-                          if (!meta) return;
+    {/* ✅ 舞台：给 legend 预留右侧/底部空间，但不压缩饼图 */}
+    <div
+      style={{
+        position: "relative",
+        width: showLegend ? 740 + 280 : 740,   // ✅ 右侧给 legend 留 280px
+        height: showLegend ? 520 + 120 : 520,  // ✅ 底部给 legend 留 120px
+        maxWidth: "100%",
+      }}
+    >
+      {/* 饼图固定放左上角 */}
+      <div style={{ position: "absolute", left: 0, top: 0 }}>
+        <Sunburst
+          data={sunData}
+          width={740}
+          height={520}
+          onPick={(meta) => {
+            if (!meta) return;
 
-                          if (meta.kind === "tile") {
-                            setPicked(meta);
-                            if (meta.clusterId) setActiveClusterId(meta.clusterId);
-                            return;
-                          }
+            if (meta.kind === "tile") {
+              setPicked(meta);
+              if (meta.clusterId) setActiveClusterId(meta.clusterId);
+              return;
+            }
 
-                          if (meta.kind === "cluster" || meta.kind === "bucket") {
-                            setPicked(null);
-                            if (meta.clusterId) setActiveClusterId(meta.clusterId);
-                            return;
-                          }
+            if (meta.kind === "cluster" || meta.kind === "bucket") {
+              setPicked(null);
+              if (meta.clusterId) setActiveClusterId(meta.clusterId);
+              return;
+            }
 
+<<<<<<< HEAD
                           if (meta.tile) {
                             setPicked(meta);
                             if (meta.clusterId) setActiveClusterId(meta.clusterId);
@@ -1109,7 +1123,36 @@ export default function Mosaic() {
                 </div>
               </div>
 >>>>>>> 3d252d32 ([fix] Errors after merge)
+=======
+            if (meta.tile) {
+              setPicked(meta);
+              if (meta.clusterId) setActiveClusterId(meta.clusterId);
+            } else {
+              setPicked(null);
+              if (meta.clusterId) setActiveClusterId(meta.clusterId);
+            }
+          }}
+          activeClusterName={activeClusterName}
+        />
+      </div>
+>>>>>>> 0c59c1ff ([fix] merge errors)
 
+      {/* legend 固定在舞台右下角（在空位里，不会压到图） */}
+      {showLegend ? (
+        <div
+          style={{
+            position: "absolute",
+            right: 12,
+            bottom: 12,
+            pointerEvents: "none",
+          }}
+        >
+          <EmotionLegend />
+        </div>
+      ) : null}
+    </div>
+  </div>
+</div>
 
               <div style={{ borderLeft: "1px solid #eee", paddingLeft: 16 }}>
                 {pickedTile ? (
