@@ -37,3 +37,11 @@ class Cluster(BaseModel):
     cluster_id: str
     items: List[Tile]
     summary: ClusterSummary
+
+class ClusterLite(BaseModel):
+    cluster_id: str
+    items: List[Tile]
+    summary: Optional[ClusterSummary] = None
+
+class ClusterSummaryRequest(BaseModel):
+    items: List[Article]

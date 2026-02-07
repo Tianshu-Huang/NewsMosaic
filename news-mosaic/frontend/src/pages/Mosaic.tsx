@@ -1,7 +1,7 @@
 import "../styles.css";
-import { useMemo, useState, useCallback, useRef } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import * as d3 from "d3";
-import { buildMosaic } from "../api";
+import { buildMosaicLite, fetchClusterSummary } from "../api";
 
 /* ══════════════════════════════════════════
    Types
@@ -82,7 +82,10 @@ function buildSunData(query: string, clusters: Cluster[]): SunNode {
   const buckets: Record<Sentiment, SunLeaf[]> = { positive: [], neutral: [], critical: [] };
 
   for (const c of clusters) {
-    const clusterName = c.summary?.cluster_title ? String(c.summary.cluster_title) : `Cluster ${c.cluster_id}`;
+      const clusterName =
+        c.summary?.cluster_title && c.summary.cluster_title !== "Summary"
+          ? String(c.summary.cluster_title)
+          : "";
     for (const tile of c.items) {
       const bucket = emotionBucket(tile);
       buckets[bucket].push({
@@ -132,6 +135,14 @@ const SENTIMENT = {
   neutral:  { light: "#eeece8", mid: "#c5c1ba", dark: "#6b6760", ring: "#d6d2cc", label: "Neutral" },
   critical: { light: "#fce4e1", mid: "#f0a09a", dark: "#c0352c", ring: "#f0b5b0", label: "Critical" },
 } as const;
+
+const THEME = {
+  accent: "#b79df3",
+  accentHover: "#8f66e6",
+  accentRing: "#e1d7fb",
+  accentRgb: "183,157,243",
+  accentText: "#ffffff",
+};
 
 /* ══════════════════════════════════════════
    Sunburst
@@ -343,7 +354,7 @@ function MosaicLoading({ loading, seed }: { loading: boolean; seed: number }) {
     box-shadow:0 12px 40px rgba(0,0,0,.10);backdrop-filter:blur(16px);
     font-weight:700;font-size:14px;letter-spacing:-.1px;color:#1d1d1f;
     font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
-  .ml-dot{width:8px;height:8px;border-radius:999px;background:var(--accent,#6b5ce7);
+  .ml-dot{width:8px;height:8px;border-radius:999px;background:var(--accent,${THEME.accent});
     animation:mlD .9s ease-in-out infinite;}
   @keyframes mlD{0%,100%{transform:scale(.85);opacity:.6}50%{transform:scale(1.2);opacity:1}}
   .ml-sub{margin-top:8px;font-size:12px;color:#8e8e93;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
@@ -436,16 +447,16 @@ function LandingPage({ onSearch }: { onSearch: (q: string) => void }) {
   .ld-search{display:flex;border-radius:14px;overflow:hidden;
     border:2px solid rgba(0,0,0,.06);background:#fff;
     box-shadow:0 4px 20px rgba(0,0,0,.05);transition:border-color 200ms ease,box-shadow 200ms ease;}
-  .ld-search:focus-within{border-color:#6b5ce7;box-shadow:0 4px 20px rgba(107,92,231,.12);}
+  .ld-search:focus-within{border-color:${THEME.accent};box-shadow:0 4px 20px rgba(${THEME.accentRgb},.12);}
   .ld-input{flex:1;padding:14px 18px;border:none;outline:none;font-size:16px;
     font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:transparent;color:#1d1d1f;}
   .ld-input::placeholder{color:#c7c7cc;}
   .ld-btn{padding:14px 26px;border:none;
-    background:#6b5ce7;color:white;
+    background:${THEME.accent};color:${THEME.accentText};
     font-size:15px;font-weight:600;cursor:pointer;
     font-family:-apple-system,BlinkMacSystemFont,sans-serif;
     transition:background 150ms ease;}
-  .ld-btn:hover{background:#5a4bd6;}
+  .ld-btn:hover{background:${THEME.accentHover};}
   .ld-hint{margin-top:14px;font-size:11px;color:#c7c7cc;font-weight:500;letter-spacing:.2px;}
   `;
 
@@ -492,12 +503,16 @@ function LandingPage({ onSearch }: { onSearch: (q: string) => void }) {
    Cluster Card — interactive, expandable
    ══════════════════════════════════════════ */
 function ClusterCard({
-  cluster, isExpanded, onToggle, onPickTile,
+  cluster, isExpanded, onToggle, onPickTile, summaryLoading,
 }: {
   cluster: Cluster; isExpanded: boolean;
   onToggle: () => void; onPickTile: (tile: Tile, clusterName: string, clusterId: string) => void;
+  summaryLoading: boolean;
 }) {
-  const clusterName = cluster.summary?.cluster_title || `Cluster ${cluster.cluster_id}`;
+  const clusterName =
+    cluster.summary?.cluster_title && cluster.summary.cluster_title !== "Summary"
+      ? String(cluster.summary.cluster_title)
+      : "";
   const sentimentBreakdown = useMemo(() => {
     let p = 0, n = 0, c = 0;
     for (const t of cluster.items) {
@@ -511,8 +526,8 @@ function ClusterCard({
     <div style={{
       borderRadius: 14, overflow: "hidden",
       background: "rgba(255,255,255,0.72)",
-      border: isExpanded ? "1px solid rgba(107,92,231,0.2)" : "1px solid rgba(0,0,0,0.06)",
-      boxShadow: isExpanded ? "0 4px 20px rgba(107,92,231,0.08)" : "0 1px 3px rgba(0,0,0,0.04)",
+      border: isExpanded ? `1px solid ${THEME.accentRing}` : "1px solid rgba(0,0,0,0.06)",
+      boxShadow: isExpanded ? `0 4px 20px rgba(${THEME.accentRgb},0.10)` : "0 1px 3px rgba(0,0,0,0.04)",
       transition: "all 200ms ease",
     }}>
       {/* Header — always visible, clickable */}
@@ -523,7 +538,13 @@ function ClusterCard({
       }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 650, fontSize: 14, color: "#1d1d1f", lineHeight: 1.3 }}>
-            {clusterName}
+            {clusterName ? (
+              clusterName
+            ) : summaryLoading ? (
+              <span style={{ opacity: 0.65 }}>Loading summary...</span>
+            ) : (
+              ""
+            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
             <span style={{ fontSize: 12, color: "#8e8e93" }}>
@@ -549,8 +570,8 @@ function ClusterCard({
         <div style={{
           width: 24, height: 24, borderRadius: 6,
           display: "flex", alignItems: "center", justifyContent: "center",
-          background: isExpanded ? "rgba(107,92,231,0.08)" : "rgba(0,0,0,0.04)",
-          color: isExpanded ? "#6b5ce7" : "#8e8e93",
+          background: isExpanded ? `rgba(${THEME.accentRgb},0.10)` : "rgba(0,0,0,0.04)",
+          color: isExpanded ? THEME.accent : "#8e8e93",
           fontSize: 12, fontWeight: 700,
           transition: "transform 200ms ease",
           transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
@@ -567,6 +588,14 @@ function ClusterCard({
         transition: "max-height 300ms cubic-bezier(.4,0,.2,1), opacity 200ms ease",
       }}>
         {/* Summary */}
+        {summaryLoading && !cluster.summary?.what_happened && (
+          <div style={{
+            padding: "0 16px 10px",
+            fontSize: 12, lineHeight: 1.5, color: "#8e8e93",
+          }}>
+            Loading summary…
+          </div>
+        )}
         {cluster.summary?.what_happened && (
           <div style={{
             padding: "0 16px 10px",
@@ -691,7 +720,7 @@ function ArticleDetail({ tile, picked, onClose }: { tile: Tile; picked: any; onC
         )}
         {tileDisplayUrl(tile) && (
           <a href={tileDisplayUrl(tile)} target="_blank" rel="noreferrer" style={{
-            fontSize: 13, fontWeight: 600, color: "#6b5ce7",
+            fontSize: 13, fontWeight: 600, color: THEME.accent,
             textDecoration: "none", display: "flex", alignItems: "center", gap: 4,
           }}>
             Read full article <span style={{ fontSize: 11 }}>&#x2197;</span>
@@ -714,6 +743,8 @@ export default function Mosaic() {
   const [picked, setPicked] = useState<any | null>(null);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState<Record<string, boolean>>({});
+  const [autoLoadAllSummaries, setAutoLoadAllSummaries] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -721,13 +752,63 @@ export default function Mosaic() {
     setLoading(true);
     setPicked(null);
     setExpandedCluster(null);
+    setSummaryLoading({});
+    setAutoLoadAllSummaries(false);
     try {
-      const data = await buildMosaic(q);
+      const data = await buildMosaicLite(q);
       setClusters(data || []);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const ensureSummary = useCallback(async (cluster: Cluster) => {
+    if (!cluster || cluster.summary) return;
+    const id = cluster.cluster_id;
+    if (summaryLoading[id]) return;
+
+    const items = (cluster.items || []).map((t) => t.article).filter(Boolean);
+    if (items.length === 0) return;
+
+    setSummaryLoading((s) => ({ ...s, [id]: true }));
+    try {
+      const summary = await fetchClusterSummary(items);
+      setClusters((prev) =>
+        prev.map((c) => (c.cluster_id === id ? { ...c, summary } : c))
+      );
+    } finally {
+      setSummaryLoading((s) => ({ ...s, [id]: false }));
+    }
+  }, [summaryLoading]);
+
+  // Prefetch first cluster summary as soon as clusters render
+  useEffect(() => {
+    if (page !== "mosaic") return;
+    if (loading) return;
+    if (!clusters || clusters.length === 0) return;
+    ensureSummary(clusters[0]);
+  }, [page, loading, clusters, ensureSummary]);
+
+  // When the first cluster title arrives, start loading the rest sequentially
+  useEffect(() => {
+    if (page !== "mosaic") return;
+    if (!clusters || clusters.length === 0) return;
+    if (autoLoadAllSummaries) return;
+    if (clusters[0]?.summary?.cluster_title) {
+      setAutoLoadAllSummaries(true);
+    }
+  }, [page, clusters, autoLoadAllSummaries]);
+
+  // Sequentially load remaining summaries
+  useEffect(() => {
+    if (page !== "mosaic") return;
+    if (!autoLoadAllSummaries) return;
+    if (!clusters || clusters.length === 0) return;
+
+    const next = clusters.find((c) => !c.summary && !summaryLoading[c.cluster_id]);
+    if (next) ensureSummary(next);
+  }, [page, autoLoadAllSummaries, clusters, summaryLoading, ensureSummary]);
+
 
   const handleLandingSearch = useCallback((q: string) => {
     setQuery(q);
@@ -864,9 +945,12 @@ export default function Mosaic() {
                         <ClusterCard key={c.cluster_id}
                           cluster={c}
                           isExpanded={expandedCluster === c.cluster_id}
-                          onToggle={() => setExpandedCluster(
-                            expandedCluster === c.cluster_id ? null : c.cluster_id
-                          )}
+                          onToggle={() => {
+                            const next = expandedCluster === c.cluster_id ? null : c.cluster_id;
+                            setExpandedCluster(next);
+                            if (next) ensureSummary(c);
+                          }}
+                          summaryLoading={!!summaryLoading[c.cluster_id]}
                           onPickTile={(tile, clusterName, clusterId) => {
                             setPicked({
                               kind: "tile", tile, clusterName, clusterId,
