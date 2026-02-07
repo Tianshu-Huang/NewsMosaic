@@ -1,0 +1,488 @@
+.nm-wrap {
+  max-width: 1100px;
+  margin: 16px auto;
+  padding: 0 16px;
+}
+
+.nm-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.nm-title {
+  display: flex;
+  gap: 10px;
+}
+
+.nm-h1 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.nm-sub {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.nm-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffffcc;
+  border: 1px solid #ddd;
+}
+
+.nm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.nm-btn {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+}
+
+.nm-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.nm-panel {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #ffffffcc;
+  border: 1px solid #ddd;
+}
+
+.nm-panel-title {
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* === Flower theme for MosaicBoard only === */
+.nm-board {
+  padding: 12px;
+}
+
+/* If MosaicBoard uses a grid, this will not break it; if not, it's harmless */
+.nm-board .nm-tile {
+  border-radius: 18px;
+  padding: 14px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 182, 193, 0.28),
+    rgba(173, 216, 230, 0.26),
+    rgba(144, 238, 144, 0.20)
+  );
+  box-shadow: 0 14px 28px rgba(0,0,0,0.10);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.nm-board .nm-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 36px rgba(0,0,0,0.14);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* Title / text polish (safe defaults) */
+.nm-board .nm-tile h1,
+.nm-board .nm-tile h2,
+.nm-board .nm-tile h3 {
+  margin: 0 0 6px 0;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+
+.nm-board .nm-tile p {
+  margin: 0;
+  opacity: 0.8;
+}
+
+/* Optional: small meta row / badges if you have them */
+.nm-board .nm-meta {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.nm-board .nm-badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(255,255,255,0.35);
+}
+/* Make board a responsive grid (safe default) */
+.nm-board {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+/* Tile internal layout helpers (optional but nice) */
+.nm-board .nm-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* If you have a clickable title row */
+.nm-board .nm-tile .nm-tile-title {
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+
+/* If you render meta as plain spans (optional) */
+.nm-board .nm-meta {
+  align-items: center;
+}
+
+/* Buttons/links inside tile (optional) */
+.nm-board .nm-link {
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-decoration: underline;
+  opacity: 0.85;
+}
+.nm-board .nm-link:hover {
+  opacity: 1;
+}
+/* board: make it a real mosaic grid */
+.nm-board{
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+/* clickable tile */
+.nm-board .nm-tile{
+  cursor: pointer;
+}
+
+/* expanded state */
+.nm-board .nm-tile.is-open{
+  transform: translateY(-2px);
+  box-shadow: 0 18px 36px rgba(0,0,0,0.14);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+/* body that can expand/collapse */
+.nm-tile-body{
+  opacity: 0.85;
+}
+
+.nm-tile-more{
+  display: none;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.35);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.nm-board .nm-tile.is-open .nm-tile-more{
+  display: block;
+}
+
+/* nicer search input if you use it */
+.nm-search{
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid #ddd;
+  outline: none;
+  background: #fff;
+}
+/* ---------- Flower expand animation (no libs) ---------- */
+
+/* Expandable body uses height/opacity/transform transitions */
+.nm-tile-more{
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-4px) scale(0.99);
+  transition:
+    max-height 260ms ease,
+    opacity 220ms ease,
+    transform 220ms ease;
+  will-change: max-height, opacity, transform;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* When tile open, reveal it */
+.nm-board .nm-tile.is-open .nm-tile-more{
+  max-height: 520px; /* 足够大即可（内容很多就调大） */
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.35);
+}
+
+/* Optional: a subtle “bloom” glow on open */
+.nm-board .nm-tile.is-open{
+  box-shadow: 0 18px 36px rgba(0,0,0,0.14), 0 0 0 6px rgba(255,182,193,0.10);
+}
+/* =========================
+   Radial "Flower Ring" Expand
+   ========================= */
+
+.nm-tile-expand {
+  position: relative;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.35);
+}
+
+.nm-radial {
+  position: relative;
+  height: 260px;
+  border-radius: 22px;
+  overflow: hidden;
+  background:
+    radial-gradient(closest-side, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.35) 55%, rgba(255,255,255,0.15) 100%);
+  border: 1px solid rgba(255,255,255,0.35);
+  box-shadow:
+    0 18px 45px rgba(0,0,0,0.16),
+    inset 0 1px 0 rgba(255,255,255,0.55);
+  transform-style: preserve-3d;
+  perspective: 900px;
+}
+
+/* subtle 3D tilt so it doesn't look flat */
+.nm-radial::before{
+  content:"";
+  position:absolute;
+  inset:-40px;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255,255,255,0.65), transparent 55%),
+    radial-gradient(circle at 70% 80%, rgba(255,255,255,0.35), transparent 60%);
+  transform: rotateX(10deg) rotateZ(-6deg);
+  pointer-events:none;
+  opacity: 0.9;
+}
+
+.nm-radial-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 112px;
+  height: 112px;
+  transform: translate(-50%, -50%) translateZ(20px);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255,255,255,0.95), rgba(255,255,255,0.55) 55%, rgba(255,255,255,0.35));
+  border: 1px solid rgba(255,255,255,0.55);
+  box-shadow: 0 16px 30px rgba(0,0,0,0.14);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  padding: 10px;
+  font-weight: 850;
+  letter-spacing: -0.2px;
+}
+
+.nm-radial-center .sub {
+  display:block;
+  font-size: 12px;
+  opacity: 0.7;
+  font-weight: 650;
+  margin-top: 4px;
+}
+
+.nm-petals {
+  position:absolute;
+  inset: 0;
+  transform: rotateX(12deg) rotateZ(2deg);
+  transform-origin: center;
+}
+
+.nm-petal {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120px;
+  height: 56px;
+  transform-origin: 0% 50%;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.45);
+  box-shadow:
+    0 14px 30px rgba(0,0,0,0.16),
+    inset 0 1px 0 rgba(255,255,255,0.65);
+  color: rgba(20,20,20,0.88);
+  background: var(--petal-bg, linear-gradient(135deg, rgba(255,182,193,0.70), rgba(173,216,230,0.55)));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+
+  /* animation */
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(var(--ang)) translateX(0px) translateZ(10px);
+  animation: nmBloom 420ms cubic-bezier(.2,.9,.25,1) forwards;
+  animation-delay: var(--delay, 0ms);
+}
+
+.nm-petal:hover {
+  transform: translate(-50%, -50%) rotate(var(--ang)) translateX(92px) translateZ(18px) scale(1.03);
+  box-shadow:
+    0 20px 45px rgba(0,0,0,0.20),
+    inset 0 1px 0 rgba(255,255,255,0.75);
+}
+
+.nm-petal-inner{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  height: 100%;
+  padding: 0 14px;
+}
+
+.nm-petal-dot{
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.75);
+  border: 1px solid rgba(255,255,255,0.55);
+  box-shadow: 0 8px 16px rgba(0,0,0,0.10);
+}
+
+.nm-petal-title{
+  font-weight: 800;
+  font-size: 12.5px;
+  line-height: 1.2;
+  max-width: 86px;
+  overflow:hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nm-petal-meta{
+  font-size: 11px;
+  opacity: 0.72;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+@keyframes nmBloom{
+  to{
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(var(--ang)) translateX(86px) translateZ(14px);
+  }
+}
+
+/* force flower theme to win */
+.nm-board .nm-tile{
+  background: linear-gradient(
+    135deg,
+    rgba(255, 182, 193, 0.28),
+    rgba(173, 216, 230, 0.26),
+    rgba(144, 238, 144, 0.20)
+  ) !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  box-shadow: 0 14px 28px rgba(0,0,0,0.10) !important;
+}
+/* === Flower theme for current MosaicBoard structure === */
+/* Your grid wrapper is .board and each tile is .tile */
+
+.board {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+/* Base tile look */
+.board .tile {
+  border-radius: 18px;
+  padding: 14px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 182, 193, 0.28),
+    rgba(173, 216, 230, 0.26),
+    rgba(144, 238, 144, 0.20)
+  );
+  box-shadow: 0 14px 28px rgba(0,0,0,0.10);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+  text-decoration: none; /* because it's <a> */
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.board .tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 36px rgba(0,0,0,0.14);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* Optional: tint per tile type */
+.board .tile.fact {
+  background: linear-gradient(135deg, rgba(120,190,255,0.28), rgba(255,255,255,0.25));
+}
+.board .tile.analysis {
+  background: linear-gradient(135deg, rgba(170,160,255,0.26), rgba(255,255,255,0.25));
+}
+.board .tile.opinion {
+  background: linear-gradient(135deg, rgba(255,140,180,0.24), rgba(255,255,255,0.25));
+}
+.board .tile.unverified {
+  background: linear-gradient(135deg, rgba(255,200,90,0.22), rgba(255,255,255,0.25));
+}
+/* --- "Random-looking" gradients by order (stable) --- */
+.board .tile{
+  border-radius: 18px;
+  padding: 14px 14px;
+  border: 1px solid rgba(255,255,255,0.35);
+  box-shadow: 0 14px 28px rgba(0,0,0,0.10);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 8-style cycle looks "random" down the list */
+.board .tile:nth-child(8n + 1){ background: linear-gradient(135deg, rgba(120,190,255,0.30), rgba(255,255,255,0.22)); }
+.board .tile:nth-child(8n + 2){ background: linear-gradient(135deg, rgba(255,140,180,0.28), rgba(255,255,255,0.22)); }
+.board .tile:nth-child(8n + 3){ background: linear-gradient(135deg, rgba(255,200,90,0.26),  rgba(255,255,255,0.22)); }
+.board .tile:nth-child(8n + 4){ background: linear-gradient(135deg, rgba(120,230,170,0.24), rgba(255,255,255,0.22)); }
+.board .tile:nth-child(8n + 5){ background: linear-gradient(135deg, rgba(170,160,255,0.26), rgba(255,255,255,0.22)); }
+.board .tile:nth-child(8n + 6){ background: linear-gradient(135deg, rgba(255,155,95,0.26),  rgba(255,255,255,0.22)); }
+.board .tile:nth-child(8n + 7){ background: linear-gradient(135deg, rgba(90,220,220,0.24),  rgba(255,255,255,0.22)); }
+.board .tile:nth-child(8n + 8){ background: linear-gradient(135deg, rgba(210,120,255,0.24), rgba(255,255,255,0.22)); }
+
+.board .tile:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 18px 36px rgba(0,0,0,0.14);
+  border-color: rgba(255,255,255,0.6);
+}
