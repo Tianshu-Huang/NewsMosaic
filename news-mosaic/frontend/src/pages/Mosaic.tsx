@@ -34,13 +34,6 @@ type SunNode =
   | { name: string; children: SunNode[] }
   | { name: string; value: number; meta: any };
 
-function normalizeTone(raw: string): "positive" | "neutral" | "critical" {
-  const t = (raw || "").toLowerCase();
-  if (["positive", "pro", "support", "favorable"].some((k) => t.includes(k))) return "positive";
-  if (["negative", "critical", "con", "against", "risk", "concern"].some((k) => t.includes(k))) return "critical";
-  return "neutral";
-}
-
 // stable shuffle so we avoid implicit ranking but still keep UI consistent per query
 function stableShuffle<T>(arr: T[], seedStr: string): T[] {
   let seed = 0;
@@ -102,7 +95,6 @@ function buildSunData(query: string, clusters: Cluster[]): SunNode {
 
       for (const tile of tiles) {
         buckets[emotionBucket(tile)].push(tile);
-        // buckets[tileTone(tile)].push(tile);
       }
 
       return {
@@ -157,12 +149,6 @@ function Sunburst({
       .innerRadius((d) => d.y0)
       .outerRadius((d) => d.y1);
 
-    function tileIntensity01_local(tile: any): number {
-      const x = Number(tile?.intensity ?? 0);
-      if (!Number.isFinite(x)) return 0;
-      return Math.max(0, Math.min(1, x));
-    }
-
     function fillFor(d: any) {
       const name = String(d.data.name);
 
@@ -182,7 +168,7 @@ function Sunburst({
       if (!tile) return "#ddd";
 
       const bucket = (d.data?.meta?.bucket || "neutral") as "positive" | "neutral" | "critical";
-      const inten = tileIntensity01_local(tile);
+      const inten = tileIntensity01(tile);
 
       const light =
         bucket === "positive" ? "#dff7e6" :
@@ -320,8 +306,27 @@ export default function Mosaic() {
                   </div>
                 ) : (
                   <div>
-                    <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
-                      Cluster: <b>{picked.clusterName}</b> • Bucket: <b>{picked.bucket}</b>
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
+                        Cluster: <b>{picked.clusterName}</b> • Bucket: <b>{picked.bucket}</b>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPicked(null)}
+                        aria-label="Close details"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 999,
+                          border: "1px solid #e6e6e6",
+                          background: "#fff",
+                          cursor: "pointer",
+                          lineHeight: "26px",
+                          padding: 0,
+                        }}
+                      >
+                        ×
+                      </button>
                     </div>
 
                     <h2 style={{ marginTop: 0 }}>{tileDisplayTitle(pickedTile)}</h2>
@@ -346,18 +351,6 @@ export default function Mosaic() {
                         </a>
                       ) : null}
                     </div>
-
-                    <button type="button" onClick={() => setPicked(null)}>
-                      Clear
-                    </button>
-
-                    {/* optional: raw debug */}
-                    <details style={{ marginTop: 12 }}>
-                      <summary style={{ cursor: "pointer", opacity: 0.75 }}>debug tile json</summary>
-                      <pre style={{ fontSize: 11, maxHeight: 220, overflow: "auto", background: "#f6f6f6", padding: 10 }}>
-                        {JSON.stringify(pickedTile, null, 2)}
-                      </pre>
-                    </details>
                   </div>
                 )}
               </div>
