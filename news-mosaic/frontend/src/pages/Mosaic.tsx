@@ -1,14 +1,15 @@
 import "./mosaic-flower.css";
-import "../components/MosaicLoading.css"
-import { useMemo, useState } from "react";
+import "../components/MosaicLoading.css";
+import { useMemo, useState, useCallback } from "react";
 import * as d3 from "d3";
 import { buildMosaic } from "../api";
 
+/* ── Types ── */
 type Tile = {
-  title?: string; // optional fallback
+  title?: string;
   url?: string;
   source?: string;
-  tone?: string; // optional (positive/neutral/critical or similar)
+  tone?: string;
   meta?: string;
   article?: {
     id?: string;
@@ -18,10 +19,10 @@ type Tile = {
     published_at?: string;
   };
   one_line_takeaway?: string;
-  tile_type?: string; // FACT / ANALYSIS / OPINION / ...
+  tile_type?: string;
   [k: string]: any;
-  valence?: number;        // [-1, 1]
-  intensity?: number;      // [0, 1]
+  valence?: number;
+  intensity?: number;
   intensity_level?: string;
 };
 
@@ -31,24 +32,9 @@ type Cluster = {
   items: Tile[];
 };
 
-type SunNode =
-  | { name: string; children: SunNode[] }
-  | { name: string; value: number; meta: any };
+type Sentiment = "positive" | "neutral" | "critical";
 
-// stable shuffle so we avoid implicit ranking but still keep UI consistent per query
-function stableShuffle<T>(arr: T[], seedStr: string): T[] {
-  let seed = 0;
-  for (let i = 0; i < seedStr.length; i++) seed = (seed * 31 + seedStr.charCodeAt(i)) >>> 0;
-
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    seed = (1664525 * seed + 1013904223) >>> 0;
-    const j = seed % (i + 1);
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
+/* ── Helpers ── */
 function tileDisplayTitle(tile: Tile): string {
   return tile.article?.title || tile.title || "Untitled";
 }
@@ -68,10 +54,10 @@ function tileDisplayTime(tile: Tile): string {
   }
 }
 
-function emotionBucket(tile: Tile): "positive" | "neutral" | "critical" {
+function emotionBucket(tile: Tile): Sentiment {
   const v = Number(tile.valence ?? 0);
-  if (v >= 0.10) return "positive";
-  if (v <= -0.10) return "critical";
+  if (v >= 0.1) return "positive";
+  if (v <= -0.1) return "critical";
   return "neutral";
 }
 
@@ -81,64 +67,116 @@ function tileIntensity01(tile: Tile): number {
   return Math.max(0, Math.min(1, x));
 }
 
+/* ── Sentiment-first sunburst data ──
+   Root
+   ├── positive (all positive tiles across all clusters)
+   ├── neutral
+   └── critical
+   Each sentiment group contains tiles directly (flattened).
+   This groups colors logically and reduces visual layers.
+*/
+type SunLeaf = { name: string; value: number; meta: any };
+type SunBranch = { name: string; children: (SunLeaf | SunBranch)[]; meta?: any };
+type SunNode = SunLeaf | SunBranch;
+
 function buildSunData(query: string, clusters: Cluster[]): SunNode {
+  const buckets: Record<Sentiment, SunLeaf[]> = {
+    positive: [],
+    neutral: [],
+    critical: [],
+  };
+
+  for (const c of clusters) {
+    const clusterName =
+      c.summary?.cluster_title
+        ? String(c.summary.cluster_title)
+        : `Cluster ${c.cluster_id}`;
+    for (const tile of c.items) {
+      const bucket = emotionBucket(tile);
+      buckets[bucket].push({
+        name: tileDisplayTitle(tile),
+        value: 1,
+        meta: {
+          kind: "tile",
+          tile,
+          clusterId: c.cluster_id,
+          clusterName,
+          bucket,
+        },
+      });
+    }
+  }
+
+  const children: SunBranch[] = [];
+  const order: Sentiment[] = ["positive", "neutral", "critical"];
+  for (const s of order) {
+    if (buckets[s].length > 0) {
+      children.push({
+        name: s,
+        meta: { kind: "sentiment", sentiment: s },
+        children: buckets[s],
+      });
+    }
+  }
+
   return {
     name: query || "Topic",
-    children: (clusters || []).map((c) => {
-      const clusterName = c.summary?.cluster_title ? String(c.summary.cluster_title) : `Cluster ${c.cluster_id}`;
-
-      const tiles = stableShuffle(c.items || [], `${query}::${clusterName}`);
-      const buckets: Record<"positive" | "neutral" | "critical", Tile[]> = {
-        positive: [],
-        neutral: [],
-        critical: [],
-      };
-
-      for (const tile of tiles) {
-        buckets[emotionBucket(tile)].push(tile);
-      }
-
-      return {
-        name: clusterName,
-        meta: { kind: "cluster", clusterId: c.cluster_id, clusterName }, // ✅ 新增
-        children: (["positive", "neutral", "critical"] as const)
-          .filter((k) => buckets[k].length > 0)
-          .map((k) => ({
-            name: k,
-            meta: { kind: "bucket", clusterId: c.cluster_id, clusterName, bucket: k }, // ✅ 新增
-            children: buckets[k].map((tile) => ({
-              name: tileDisplayTitle(tile),
-              value: 1,
-              meta: { kind: "tile", tile, clusterId: c.cluster_id, clusterName, bucket: k },
-            })),
-          })),
-      };
-
-    }),
+    children,
   };
 }
 
-/**
- * Minimal inline Sunburst (no extra file).
- * Click a leaf -> calls onPick(meta)
- */
+/* ── Sentiment stats ── */
+function computeSentimentStats(clusters: Cluster[]) {
+  let pos = 0,
+    neu = 0,
+    crit = 0;
+  for (const c of clusters) {
+    for (const t of c.items) {
+      const b = emotionBucket(t);
+      if (b === "positive") pos++;
+      else if (b === "critical") crit++;
+      else neu++;
+    }
+  }
+  const total = pos + neu + crit || 1;
+  return {
+    positive: { count: pos, pct: Math.round((pos / total) * 100) },
+    neutral: { count: neu, pct: Math.round((neu / total) * 100) },
+    critical: { count: crit, pct: Math.round((crit / total) * 100) },
+    total: pos + neu + crit,
+  };
+}
+
+/* ── Sentiment colors ── */
+const SENTIMENT_COLORS: Record<Sentiment, { light: string; dark: string; ring: string; label: string }> = {
+  positive: { light: "#dff7e6", dark: "#1b7f3a", ring: "#bfe8c8", label: "Positive" },
+  neutral: { light: "#f0f0f0", dark: "#555555", ring: "#e2e2e2", label: "Neutral" },
+  critical: { light: "#fde2e2", dark: "#b42318", ring: "#f3c1c1", label: "Critical" },
+};
+
+/* ── Sunburst component ── */
 function Sunburst({
   data,
-  width = 780,
-  height = 560,
+  query,
+  stats,
+  width = 600,
+  height = 600,
   onPick,
-  activeClusterName,
+  hoveredKey,
+  onHover,
 }: {
   data: SunNode;
+  query: string;
+  stats: ReturnType<typeof computeSentimentStats>;
   width?: number;
   height?: number;
   onPick: (meta: any) => void;
-  activeClusterName?: string | null;
+  hoveredKey: string | null;
+  onHover: (key: string | null) => void;
 }) {
-  const svg = useMemo(() => {
-    const w = width;
-    const h = height;
-    const radius = Math.min(w, h) / 2 - 14;
+  const computed = useMemo(() => {
+    const radius = Math.min(width, height) / 2 - 20;
+    const centerRadius = radius * 0.22;
 
     const root = d3
       .hierarchy<any>(data as any)
@@ -152,111 +190,102 @@ function Sunburst({
       .arc<any>()
       .startAngle((d) => d.x0)
       .endAngle((d) => d.x1)
-      .innerRadius((d) => d.y0)
-      .outerRadius((d) => d.y1);
+      .innerRadius((d) => Math.max(d.y0, centerRadius))
+      .outerRadius((d) => d.y1)
+      .padAngle(0.008)
+      .cornerRadius(4);
 
-    function fillFor(d: any) {
+    function fillFor(d: any): string {
       const name = String(d.data.name);
 
-      // depth1: cluster ring
-      if (d.depth === 1) return "#fafafa";
-
-      // depth2: bucket ring
-      if (d.depth === 2) {
-        if (name === "positive") return "#bfe8c8";
-        if (name === "neutral") return "#e6e6e6";
-        if (name === "critical") return "#f3c1c1";
-        return "#e6e6e6";
+      // depth 1: sentiment ring
+      if (d.depth === 1) {
+        const s = name as Sentiment;
+        return SENTIMENT_COLORS[s]?.ring || "#e6e6e6";
       }
 
-      // depth3: leaf tiles
+      // depth 2: leaf tiles — color by sentiment + intensity
       const tile = d.data?.meta?.tile;
       if (!tile) return "#ddd";
 
-      const bucket = (d.data?.meta?.bucket || "neutral") as "positive" | "neutral" | "critical";
+      const bucket = (d.data?.meta?.bucket || "neutral") as Sentiment;
       const inten = tileIntensity01(tile);
-
-      const light =
-        bucket === "positive" ? "#dff7e6" :
-          bucket === "critical" ? "#fde2e2" :
-            "#f0f0f0";
-
-      const dark =
-        bucket === "positive" ? "#1b7f3a" :
-          bucket === "critical" ? "#b42318" :
-            "#555555";
-
-      return d3.interpolateRgb(light, dark)(inten);
+      const colors = SENTIMENT_COLORS[bucket] || SENTIMENT_COLORS.neutral;
+      return d3.interpolateRgb(colors.light, colors.dark)(inten * 0.7 + 0.15);
     }
-
-    const active = activeClusterName ? String(activeClusterName) : null;
 
     const nodes = root.descendants().filter((d) => d.depth > 0);
 
     return {
-      viewBox: `${-w / 2} ${-h / 2} ${w} ${h}`,
+      viewBox: `${-width / 2} ${-height / 2} ${width} ${height}`,
+      centerRadius,
       nodes: nodes.map((d) => {
-        const clusterName = d.ancestors().find((x: any) => x.depth === 1)?.data?.name;
-        const isActiveCluster = active ? String(clusterName) === active : false;
-
+        const key = d.data.name + "|" + d.depth + "|" + d.x0.toFixed(4);
         return {
-          key: d.data.name + "|" + d.depth + "|" + d.x0 + "|" + d.y0,
+          key,
           d,
           path: arc(d) || "",
           fill: fillFor(d),
           clickable: !!d.data?.meta,
-          isActiveCluster,
-          clusterName: String(clusterName || ""),
+          isLeaf: !d.children,
+          sentiment:
+            d.depth === 1
+              ? (d.data.name as Sentiment)
+              : (d.data?.meta?.bucket as Sentiment) || "neutral",
           title:
-            !d.children && d.data?.meta?.tile
-              ? `${tileDisplayTitle(d.data.meta.tile)}\n${tileDisplaySource(d.data.meta.tile)} • ${tileDisplayTime(
-                d.data.meta.tile
-              )}\n${d.data.meta.tile.one_line_takeaway || ""}`
+            d.depth === 2 && d.data?.meta?.tile
+              ? `${tileDisplayTitle(d.data.meta.tile)}\n${tileDisplaySource(d.data.meta.tile)} · ${tileDisplayTime(d.data.meta.tile)}\n${d.data.meta.tile.one_line_takeaway || ""}`
               : String(d.data.name),
         };
       }),
-      centerText: activeClusterName ? String(activeClusterName) : String((data as any).name || "Topic"),
     };
-  }, [data, width, height, activeClusterName]);
+  }, [data, width, height]);
 
   return (
-    <svg viewBox={svg.viewBox} width={width} height={height} aria-label="Mosaic sunburst">
+    <svg
+      viewBox={computed.viewBox}
+      width={width}
+      height={height}
+      aria-label="Mosaic sunburst"
+      style={{ display: "block" }}
+    >
+      <defs>
+        <filter id="tile-shadow">
+          <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.15" />
+        </filter>
+      </defs>
+
       <g>
-        {svg.nodes.map((n) => {
-          const active = activeClusterName ? String(activeClusterName) : null;
+        {computed.nodes.map((n) => {
+          const isHovered = hoveredKey === n.key;
+          const scale = isHovered && n.isLeaf ? 1.08 : 1;
 
-          // cluster ring 是 depth=1 的扇区
-          const isClusterRing = n.d.depth === 1;
-
-          // 当前 path 属于哪个 cluster（对 depth=1 来说 clusterName 就是它自己；对其它层也能追溯）
-          const belongsToActiveCluster = active ? String(n.clusterName) === active : false;
-
-          // 只淡化“cluster ring 的其它扇区”，别影响叶子 tile 的可读性
-          const opacity =
-            active && isClusterRing ? (belongsToActiveCluster ? 1 : 0.25) : 1;
-
-          // 选中 cluster ring 给一点柔和的“浮起”效果
-          const filter =
-            active && isClusterRing && belongsToActiveCluster
-              ? "drop-shadow(0 6px 14px rgba(0,0,0,0.10))"
-              : "none";
-
-          const stroke = isClusterRing ? "#d9d9d9" : "#f4f4f4";
-          const strokeWidth = isClusterRing ? 4 : 1;
-
+          // Calculate center of the arc for transform-origin
+          const midAngle = (n.d.x0 + n.d.x1) / 2;
+          const midRadius = (Math.max(n.d.y0, computed.centerRadius) + n.d.y1) / 2;
+          const cx = Math.sin(midAngle) * midRadius;
+          const cy = -Math.cos(midAngle) * midRadius;
 
           return (
             <path
               key={n.key}
               d={n.path}
               fill={n.fill}
-              stroke={stroke}
-              strokeWidth={strokeWidth}
-              opacity={opacity}
+              stroke={n.isLeaf ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.9)"}
+              strokeWidth={n.isLeaf ? 1.5 : 2.5}
               style={{
                 cursor: n.clickable ? "pointer" : "default",
-                filter,
+                transform: isHovered && n.isLeaf
+                  ? `translate(${cx * 0.06}px, ${cy * 0.06}px) scale(${scale})`
+                  : "none",
+                transformOrigin: `${cx}px ${cy}px`,
+                transition: "transform 180ms ease, filter 180ms ease",
+                filter: isHovered && n.isLeaf
+                  ? "drop-shadow(0 4px 12px rgba(0,0,0,0.2))"
+                  : "none",
               }}
+              onMouseEnter={() => onHover(n.key)}
+              onMouseLeave={() => onHover(null)}
               onClick={() => {
                 if (n.clickable) onPick(n.d.data.meta);
               }}
@@ -267,27 +296,62 @@ function Sunburst({
         })}
       </g>
 
-      {/* 中心文字建议保持短：显示 query 或提示，不要用 cluster title */}
+      {/* Center circle */}
+      <circle
+        cx={0}
+        cy={0}
+        r={computed.centerRadius}
+        fill="white"
+        stroke="#e8e8e8"
+        strokeWidth={2}
+      />
+
+      {/* Center content: query + stats */}
       <text
         x={0}
-        y={0}
+        y={-14}
         textAnchor="middle"
         dominantBaseline="middle"
-        fontSize={12}
-        fontWeight={600}
-        fill="#666"
+        fontSize={14}
+        fontWeight={800}
+        fill="#333"
       >
-        Click A Tile
+        {query.length > 18 ? query.slice(0, 16) + "…" : query}
       </text>
+
+      <text
+        x={0}
+        y={6}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize={10}
+        fill="#888"
+      >
+        {stats.total} articles
+      </text>
+
+      {/* Mini sentiment bars in center */}
+      {(() => {
+        const barWidth = computed.centerRadius * 1.2;
+        const barHeight = 5;
+        const y = 22;
+        const startX = -barWidth / 2;
+        const posW = (stats.positive.pct / 100) * barWidth;
+        const neuW = (stats.neutral.pct / 100) * barWidth;
+        const critW = (stats.critical.pct / 100) * barWidth;
+        return (
+          <g>
+            <rect x={startX} y={y} width={posW} height={barHeight} rx={2.5} fill={SENTIMENT_COLORS.positive.ring} />
+            <rect x={startX + posW} y={y} width={neuW} height={barHeight} rx={0} fill={SENTIMENT_COLORS.neutral.ring} />
+            <rect x={startX + posW + neuW} y={y} width={critW} height={barHeight} rx={2.5} fill={SENTIMENT_COLORS.critical.ring} />
+          </g>
+        );
+      })()}
     </svg>
   );
 }
 
-/* -----------------------------
-   Mosaic Loading Overlay (inline)
-   - Zero deps, pure CSS animation
------------------------------- */
-
+/* ── Loading overlay ── */
 function mulberry32(seed: number) {
   let t = seed >>> 0;
   return function () {
@@ -312,11 +376,6 @@ type LoadingTile = {
   lig: number;
   delay: number;
   dur: number;
-
-  // NEW: fish-scale flip controls
-  flipAxis: "x" | "y"; // rotateX or rotateY
-  amp: number;         // rotation amplitude (deg)
-  phase: number;       // phase offset (s)
 };
 
 function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: string; seed: number }) {
@@ -324,7 +383,6 @@ function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: str
     const cols = 14;
     const rows = 9;
     const rand = mulberry32(seed);
-
     const list: LoadingTile[] = [];
     const used = new Set<string>();
     const key = (c: number, r: number) => `${c},${r}`;
@@ -332,80 +390,47 @@ function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: str
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (used.has(key(c, r))) continue;
-
         const pick = rand();
-        let w = 1;
-        let h = 1;
-        if (pick > 0.88) {
-          w = 2;
-          h = 2;
-        } else if (pick > 0.74) {
-          w = 2;
-          h = 1;
-        } else if (pick > 0.60) {
-          w = 1;
-          h = 2;
-        }
-
+        let w = 1, h = 1;
+        if (pick > 0.88) { w = 2; h = 2; }
+        else if (pick > 0.74) { w = 2; h = 1; }
+        else if (pick > 0.60) { w = 1; h = 2; }
         if (c + w > cols) w = 1;
         if (r + h > rows) h = 1;
-
-        for (let rr = r; rr < r + h; rr++) {
-          for (let cc = c; cc < c + w; cc++) {
+        for (let rr = r; rr < r + h; rr++)
+          for (let cc = c; cc < c + w; cc++)
             used.add(key(cc, rr));
-          }
-        }
-
-        const hue = Math.floor(rand() * 360);
-        const sat = clamp(55 + rand() * 25, 45, 85);
-        const lig = clamp(32 + rand() * 28, 26, 64);
-        const flipAxis = rand() > 0.5 ? "y" : "x";
-        const amp = 10 + rand() * 18;     // 10~28deg
-        const phase = rand() * 1.6;       // 0~1.6s
 
         list.push({
           id: `${c}-${r}`,
-          x: c,
-          y: r,
-          w,
-          h,
-          hue,
-          sat,
-          lig,
+          x: c, y: r, w, h,
+          hue: Math.floor(rand() * 360),
+          sat: clamp(55 + rand() * 25, 45, 85),
+          lig: clamp(32 + rand() * 28, 26, 64),
           delay: rand() * 0.8,
           dur: 1.8 + rand() * 1.8,
-
-          flipAxis,
-          amp,
-          phase,
         });
       }
     }
-
     return { cols, rows, list };
   }, [seed]);
 
-  // inline styles so you don't need a new css file
   const css = `
   .ml-wrap{position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:0;transition:opacity 220ms ease;
     background:radial-gradient(1100px 680px at 10% 5%, #ffffff 0%, #f4f6fb 35%, #eef1f7 70%, #e8ebf2 100%);}
   .ml-wrap.is-on{opacity:1}
-  .ml-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--cols),1fr);grid-template-rows:repeat(var(--rows),1fr);
-    gap:10px;padding:18px;}
+  .ml-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--cols),1fr);grid-template-rows:repeat(var(--rows),1fr);gap:10px;padding:18px;}
   .ml-tile{grid-column:calc(var(--x) + 1)/span var(--w);grid-row:calc(var(--y) + 1)/span var(--h);border-radius:16px;overflow:hidden;
-    box-shadow:0 10px 30px rgba(20,24,35,.10),0 2px 8px rgba(20,24,35,.08);transform:translateZ(0);}
+    box-shadow:0 10px 30px rgba(20,24,35,.10),0 2px 8px rgba(20,24,35,.08);}
   .ml-inner{width:100%;height:100%;
     background:radial-gradient(420px 240px at 25% 20%, rgba(255,255,255,.55), rgba(255,255,255,0) 55%),
     linear-gradient(135deg,hsla(var(--hue),var(--sat),calc(var(--lig) + 14%),.92),hsla(calc(var(--hue) + 22),calc(var(--sat) - 10%),calc(var(--lig) - 4%),.92));
     border:1px solid rgba(255,255,255,.55);backdrop-filter:blur(10px);
     animation:mlPulse var(--t) ease-in-out var(--d) infinite;}
-  @keyframes mlPulse{0%{transform:translateY(0) scale(1);opacity:.88;filter:blur(0) saturate(1.05)}
-    35%{transform:translateY(-4px) scale(1.01);opacity:1;filter:blur(0) saturate(1.12)}
-    70%{transform:translateY(3px) scale(.995);opacity:.92;filter:blur(.2px) saturate(1.05)}
-    100%{transform:translateY(0) scale(1);opacity:.88;filter:blur(0) saturate(1.05)}}
-  .ml-sweep{position:absolute;inset:-40%;background:linear-gradient(135deg, rgba(255,255,255,0) 35%, rgba(255,255,255,.55) 50%, rgba(255,255,255,0) 65%);
-    transform:translateX(-35%) translateY(-35%);animation:mlSweep 1.9s ease-in-out infinite;opacity:.25;pointer-events:none;}
-  @keyframes mlSweep{0%{transform:translateX(-35%) translateY(-35%)}50%{transform:translateX(10%) translateY(10%)}100%{transform:translateX(45%) translateY(45%)}}
+  @keyframes mlPulse{0%{transform:translateY(0) scale(1);opacity:.88}
+    35%{transform:translateY(-4px) scale(1.01);opacity:1}
+    70%{transform:translateY(3px) scale(.995);opacity:.92}
+    100%{transform:translateY(0) scale(1);opacity:.88}}
   .ml-center{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;}
   .ml-pill{display:inline-flex;align-items:center;gap:10px;padding:12px 14px;border-radius:999px;background:rgba(255,255,255,.72);
     border:1px solid rgba(18,20,28,.10);box-shadow:0 18px 50px rgba(20,24,35,.12);backdrop-filter:blur(12px);
@@ -421,44 +446,21 @@ function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: str
     <>
       <style>{css}</style>
       <div className={`ml-wrap ${loading ? "is-on" : ""}`} aria-hidden={!loading}>
-        <div
-          className="ml-grid"
-          style={
-            {
-              ["--cols" as any]: tiles.cols,
-              ["--rows" as any]: tiles.rows,
-            } as React.CSSProperties
-          }
-        >
+        <div className="ml-grid" style={{ ["--cols" as any]: tiles.cols, ["--rows" as any]: tiles.rows } as React.CSSProperties}>
           {tiles.list.map((t) => (
-            <div
-              key={t.id}
-              className="ml-tile"
-              style={
-                {
-                  ["--x" as any]: t.x,
-                  ["--y" as any]: t.y,
-                  ["--w" as any]: t.w,
-                  ["--h" as any]: t.h,
-                  ["--hue" as any]: t.hue,
-                  ["--sat" as any]: `${t.sat}%`,
-                  ["--lig" as any]: `${t.lig}%`,
-                  ["--d" as any]: `${t.delay}s`,
-                  ["--t" as any]: `${t.dur}s`,
-
-                  // NEW
-                  ["--amp" as any]: `${t.amp}deg`,
-                  ["--ph" as any]: `${t.phase}s`,
-                  ["--axis" as any]: t.flipAxis,
-                } as React.CSSProperties
-              }
+            <div key={t.id} className="ml-tile"
+              style={{
+                ["--x" as any]: t.x, ["--y" as any]: t.y,
+                ["--w" as any]: t.w, ["--h" as any]: t.h,
+                ["--hue" as any]: t.hue, ["--sat" as any]: `${t.sat}%`,
+                ["--lig" as any]: `${t.lig}%`, ["--d" as any]: `${t.delay}s`,
+                ["--t" as any]: `${t.dur}s`,
+              } as React.CSSProperties}
             >
               <div className="ml-inner" />
             </div>
           ))}
         </div>
-
-        <div className="ml-sweep" />
         <div className="ml-center">
           <div className="ml-pill">
             <span className="ml-dot" />
@@ -472,276 +474,304 @@ function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: str
   );
 }
 
-/* -----------------------------
-   Page
------------------------------- */
-
-function EmotionLegend() {
-  const rowStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    marginTop: 8,
-  };
-
-  const barStyle = (from: string, to: string): React.CSSProperties => ({
-    width: 140,
-    height: 10,
-    borderRadius: 999,
-    background: `linear-gradient(90deg, ${from}, ${to})`,
-    border: "1px solid rgba(0,0,0,0.08)",
-  });
-
-  const labelStyle: React.CSSProperties = { fontSize: 12, opacity: 0.85, width: 54 };
+/* ── Sentiment Legend with percentages ── */
+function SentimentLegend({ stats }: { stats: ReturnType<typeof computeSentimentStats> }) {
+  const items: { key: Sentiment; label: string; color: string; pct: number; count: number }[] = [
+    { key: "positive", label: "Positive", color: SENTIMENT_COLORS.positive.ring, pct: stats.positive.pct, count: stats.positive.count },
+    { key: "neutral", label: "Neutral", color: SENTIMENT_COLORS.neutral.ring, pct: stats.neutral.pct, count: stats.neutral.count },
+    { key: "critical", label: "Critical", color: SENTIMENT_COLORS.critical.ring, pct: stats.critical.pct, count: stats.critical.count },
+  ];
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        right: 0,
-        bottom: 0,
-        transform: "translate(0, 0)",
-
-        marginRight: 6,
-        marginBottom: 6,
-        padding: "12px 12px 10px",
-        borderRadius: 14,
-        background: "rgba(255,255,255,0.92)",
-        border: "1px solid rgba(0,0,0,0.08)",
-        boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-        backdropFilter: "blur(6px)",
-        zIndex: 10,
-        width: 260,
-        pointerEvents: "none", // 防止挡住点击饼图（建议）
-      }}
-    >
-      <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>Color meaning</div>
-
-      <div style={{ fontSize: 12, opacity: 0.75, display: "flex", justifyContent: "space-between" }}>
-        <span>low intensity</span>
-        <span>high intensity</span>
-      </div>
-
-      <div style={rowStyle}>
-        <div style={labelStyle}>positive</div>
-        <div style={barStyle("#dff7e6", "#1b7f3a")} />
-      </div>
-
-      <div style={rowStyle}>
-        <div style={labelStyle}>neutral</div>
-        <div style={barStyle("#f0f0f0", "#555555")} />
-      </div>
-
-      <div style={rowStyle}>
-        <div style={labelStyle}>critical</div>
-        <div style={barStyle("#fde2e2", "#b42318")} />
-      </div>
+    <div style={{
+      display: "flex", gap: 20, justifyContent: "center",
+      padding: "10px 20px", borderRadius: 14,
+      background: "rgba(255,255,255,0.85)",
+      border: "1px solid rgba(0,0,0,0.06)",
+      boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
+      backdropFilter: "blur(6px)",
+    }}>
+      {items.map((it) => (
+        <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{
+            width: 12, height: 12, borderRadius: 3,
+            background: it.color,
+            border: "1px solid rgba(0,0,0,0.1)",
+          }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#444" }}>
+            {it.label}
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#222" }}>
+            {it.pct}%
+          </span>
+          <span style={{ fontSize: 11, color: "#999" }}>
+            ({it.count})
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
 
+/* ── Landing Page ── */
+function LandingPage({ onSearch }: { onSearch: (q: string) => void }) {
+  const [input, setInput] = useState("");
+  const seed = 2026;
+  const tiles = useMemo(() => {
+    const cols = 16;
+    const rows = 10;
+    const rand = mulberry32(seed);
+    const list: { id: string; x: number; y: number; w: number; h: number; hue: number; sat: number; lig: number; delay: number; dur: number }[] = [];
+    const used = new Set<string>();
+    const key = (c: number, r: number) => `${c},${r}`;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (used.has(key(c, r))) continue;
+        const pick = rand();
+        let w = 1, h = 1;
+        if (pick > 0.86) { w = 2; h = 2; }
+        else if (pick > 0.72) { w = 2; h = 1; }
+        else if (pick > 0.58) { w = 1; h = 2; }
+        if (c + w > cols) w = 1;
+        if (r + h > rows) h = 1;
+        for (let rr = r; rr < r + h; rr++)
+          for (let cc = c; cc < c + w; cc++)
+            used.add(key(cc, rr));
+        list.push({
+          id: `${c}-${r}`, x: c, y: r, w, h,
+          hue: Math.floor(rand() * 360),
+          sat: clamp(55 + rand() * 30, 45, 85),
+          lig: clamp(35 + rand() * 25, 28, 62),
+          delay: rand() * 0.8,
+          dur: 2.6 + rand() * 2.6,
+        });
+      }
+    }
+    return { cols, rows, list };
+  }, []);
 
+  const handleSubmit = useCallback(() => {
+    const q = input.trim();
+    if (q) onSearch(q);
+  }, [input, onSearch]);
+
+  const landingCss = `
+  .landing-wrap{position:fixed;inset:0;z-index:100;overflow:hidden;
+    background:radial-gradient(ellipse at 20% 20%, #f8f9fd 0%, #eef1f7 50%, #e4e8f0 100%);}
+  .landing-grid{position:absolute;inset:0;display:grid;
+    grid-template-columns:repeat(var(--cols),1fr);grid-template-rows:repeat(var(--rows),1fr);
+    gap:8px;padding:14px;opacity:0.35;}
+  .landing-tile{grid-column:calc(var(--x)+1)/span var(--w);grid-row:calc(var(--y)+1)/span var(--h);
+    border-radius:14px;overflow:hidden;
+    box-shadow:0 8px 24px rgba(20,24,35,.08);}
+  .landing-tile-inner{width:100%;height:100%;
+    background:radial-gradient(300px 180px at 25% 20%, rgba(255,255,255,.5), rgba(255,255,255,0) 55%),
+    linear-gradient(135deg,hsla(var(--hue),var(--sat),calc(var(--lig)+12%),.85),hsla(calc(var(--hue)+20),calc(var(--sat)-8%),calc(var(--lig)-3%),.85));
+    border:1px solid rgba(255,255,255,.45);
+    animation:landingFloat var(--t) ease-in-out var(--d) infinite;}
+  @keyframes landingFloat{0%{transform:translateY(0) scale(1);opacity:.85}
+    50%{transform:translateY(-3px) scale(1.005);opacity:1}
+    100%{transform:translateY(0) scale(1);opacity:.85}}
+  .landing-center{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;z-index:10;}
+  .landing-glass{padding:48px 56px;border-radius:28px;
+    background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.6);
+    box-shadow:0 24px 60px rgba(0,0,0,.10),0 0 0 1px rgba(0,0,0,.04);
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    text-align:center;max-width:520px;width:90%;}
+  .landing-badge{display:inline-block;padding:4px 14px;border-radius:999px;
+    background:linear-gradient(135deg,rgba(124,92,255,.12),rgba(255,79,216,.10));
+    color:#7c5cff;font-size:11px;font-weight:800;letter-spacing:1.5px;margin-bottom:16px;}
+  .landing-title{font-size:42px;font-weight:900;letter-spacing:-1px;
+    color:#1a1a2e;margin:0 0 8px;line-height:1.1;}
+  .landing-sub{font-size:15px;color:#666;margin:0 0 28px;line-height:1.5;}
+  .landing-search{display:flex;gap:0;border-radius:16px;overflow:hidden;
+    border:2px solid rgba(0,0,0,.08);background:#fff;
+    box-shadow:0 8px 28px rgba(0,0,0,.06);}
+  .landing-input{flex:1;padding:14px 18px;border:none;outline:none;font-size:16px;
+    font-family:inherit;background:transparent;color:#222;}
+  .landing-btn{padding:14px 28px;border:none;
+    background:linear-gradient(135deg,#7c5cff,#5a3fd6);color:white;
+    font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;
+    transition:opacity 150ms ease;}
+  .landing-btn:hover{opacity:0.9;}
+  .landing-hint{margin-top:16px;font-size:12px;color:#999;}
+  .landing-vignette{position:absolute;inset:-40px;pointer-events:none;
+    background:radial-gradient(1200px 700px at 50% 40%, transparent 50%, rgba(0,0,0,.06) 100%);}
+  `;
+
+  return (
+    <>
+      <style>{landingCss}</style>
+      <div className="landing-wrap">
+        <div className="landing-grid"
+          style={{ ["--cols" as any]: tiles.cols, ["--rows" as any]: tiles.rows } as React.CSSProperties}>
+          {tiles.list.map((t) => (
+            <div key={t.id} className="landing-tile"
+              style={{
+                ["--x" as any]: t.x, ["--y" as any]: t.y,
+                ["--w" as any]: t.w, ["--h" as any]: t.h,
+                ["--hue" as any]: t.hue, ["--sat" as any]: `${t.sat}%`,
+                ["--lig" as any]: `${t.lig}%`, ["--d" as any]: `${t.delay}s`,
+                ["--t" as any]: `${t.dur}s`,
+              } as React.CSSProperties}>
+              <div className="landing-tile-inner" />
+            </div>
+          ))}
+        </div>
+        <div className="landing-center">
+          <div className="landing-glass">
+            <div className="landing-badge">MOSAIC MODE</div>
+            <h1 className="landing-title">News Mosaic</h1>
+            <p className="landing-sub">
+              Enter a topic to build your mosaic.<br />
+              Fragments become something whole.
+            </p>
+            <div className="landing-search">
+              <input
+                className="landing-input"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+                placeholder="e.g. artificial intelligence, climate change..."
+                autoFocus
+              />
+              <button className="landing-btn" onClick={handleSubmit}>
+                Build Mosaic
+              </button>
+            </div>
+            <div className="landing-hint">
+              Press Enter or click Build Mosaic to start
+            </div>
+          </div>
+        </div>
+        <div className="landing-vignette" />
+      </div>
+    </>
+  );
+}
+
+/* ── Main Page ── */
 export default function Mosaic() {
-  const [query, setQuery] = useState("OpenAI");
+  const [page, setPage] = useState<"landing" | "mosaic">("landing");
+  const [query, setQuery] = useState("");
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [loading, setLoading] = useState(false);
-  const [activeClusterId, setActiveClusterId] = useState<string | null>(null);
-
-  // clicked leaf info
   const [picked, setPicked] = useState<any | null>(null);
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
 
-  async function run() {
+  const run = useCallback(async (q: string) => {
     setLoading(true);
-
+    setPicked(null);
     try {
-      const data = await buildMosaic(query);
+      const data = await buildMosaic(q);
       setClusters(data || []);
-      setPicked(null);
-      setActiveClusterId((data && data[0]?.cluster_id) ? data[0].cluster_id : null);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  const handleLandingSearch = useCallback((q: string) => {
+    setQuery(q);
+    setPage("mosaic");
+    run(q);
+  }, [run]);
+
+  const handleTopbarSearch = useCallback(() => {
+    if (query.trim()) run(query.trim());
+  }, [query, run]);
 
   const sunData = useMemo(() => buildSunData(query, clusters), [query, clusters]);
+  const stats = useMemo(() => computeSentimentStats(clusters), [clusters]);
   const pickedTile: Tile | null = picked?.tile || null;
 
-  // 让 loading 的配色“跟 query 绑定”——同一关键词颜色稳定
   const loadingSeed = useMemo(() => {
     let s = 2026;
     for (let i = 0; i < query.length; i++) s = (s * 31 + query.charCodeAt(i)) >>> 0;
     return s;
   }, [query]);
-  const activeCluster =
-    clusters.find((c) => c.cluster_id === activeClusterId) || clusters[0] || null;
 
-  const activeSummary = activeCluster?.summary || null;
+  // Find the cluster for the picked tile
+  const pickedCluster = picked?.clusterId
+    ? clusters.find((c) => c.cluster_id === picked.clusterId)
+    : null;
 
-  const activeClusterName =
-    activeCluster?.summary?.cluster_title ||
-    (activeCluster ? `Cluster ${activeCluster.cluster_id}` : null);
-
-  const showLegend = clusters.length > 0;
+  if (page === "landing") {
+    return <LandingPage onSearch={handleLandingSearch} />;
+  }
 
   return (
     <div className="layout">
-      {/* ✅ Loading 覆盖层：直接放在页面最顶层 */}
-      <MosaicLoading loading={loading} label={loading ? "Building mosaic…" : ""} seed={loadingSeed} />
+      <MosaicLoading loading={loading} label="Building mosaic…" seed={loadingSeed} />
 
       <div className="topbar">
-        <div className="brand">
-          <span className="logo">🧩</span>
+        <div className="brand" style={{ cursor: "pointer" }} onClick={() => setPage("landing")}>
+          <span className="logo" role="img" aria-label="mosaic">&#x1F9E9;</span>
           <h1>News Mosaic</h1>
         </div>
 
         <div className="search" style={{ maxWidth: 720, width: "100%" }}>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search topic..." />
-          <button
-            onClick={run}
-            disabled={loading}
-            style={{
-              fontSize: loading ? "18px" : "16px",
-              fontWeight: loading ? 800 : 600,
-              letterSpacing: "0.6px",
-            }}
-          >
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleTopbarSearch(); }}
+            placeholder="Search topic..."
+          />
+          <button onClick={handleTopbarSearch} disabled={loading}
+            style={{ fontSize: loading ? "18px" : "16px", fontWeight: loading ? 800 : 600 }}>
             {loading ? "Building..." : "Build Mosaic"}
           </button>
         </div>
       </div>
 
       <div className="content">
-        {/* No sidebar (avoid any implied ranking / ordering) */}
         <div className="main" style={{ width: "100%" }}>
           {clusters.length > 0 ? (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(740px, 860px) minmax(420px, 560px)",
-                justifyContent: "center",
-                gap: 16,
-                alignItems: "start",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: 10,
-                    width: "100%",
-                    maxWidth: 980, // ✅ 左侧整体可以更宽一点
-                    boxSizing: "border-box",
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(580px, 660px) minmax(380px, 520px)",
+              justifyContent: "center",
+              gap: 24,
+              alignItems: "start",
+            }}>
+              {/* Left: Sunburst + legend */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                <Sunburst
+                  data={sunData}
+                  query={query}
+                  stats={stats}
+                  width={580}
+                  height={580}
+                  onPick={(meta) => {
+                    if (!meta) return;
+                    if (meta.kind === "tile") {
+                      setPicked(meta);
+                    } else if (meta.kind === "sentiment") {
+                      setPicked(null);
+                    }
                   }}
-                >
-                  {/* 标题 */}
-                  <div
-                    title={activeClusterName || query} // 仍然保留 hover 全文
-                    style={{
-                      width: "min(860px, 100%)",
-                      textAlign: "center",
-                      fontWeight: 800,
-                      fontSize: 18,
-                      lineHeight: 1.25,
-                      color: "#222",
-                      padding: "6px 10px",
-
-                      // ✅ 不省略：允许换行
-                      whiteSpace: "normal",
-                      overflow: "visible",
-                      textOverflow: "clip",
-                      wordBreak: "break-word",     // 长词也能断
-                      overflowWrap: "anywhere",    // URL/超长 token 也能断
-                    }}
-                  >
-                    {activeClusterName || query}
-                  </div>
-
-
-                  {/* ✅ 舞台：给 legend 预留右侧/底部空间，但不压缩饼图 */}
-                  <div
-                    style={{
-                      position: "relative",
-                      width: showLegend ? 740 + 280 : 740,   // ✅ 右侧给 legend 留 280px
-                      height: showLegend ? 520 + 120 : 520,  // ✅ 底部给 legend 留 120px
-                      maxWidth: "100%",
-                    }}
-                  >
-                    {/* 饼图固定放左上角 */}
-                    <div style={{ position: "absolute", left: 0, top: 0 }}>
-                      <Sunburst
-                        data={sunData}
-                        width={740}
-                        height={520}
-                        onPick={(meta) => {
-                          if (!meta) return;
-
-                          if (meta.kind === "tile") {
-                            setPicked(meta);
-                            if (meta.clusterId) setActiveClusterId(meta.clusterId);
-                            return;
-                          }
-
-                          if (meta.kind === "cluster" || meta.kind === "bucket") {
-                            setPicked(null);
-                            if (meta.clusterId) setActiveClusterId(meta.clusterId);
-                            return;
-                          }
-
-                          if (meta.tile) {
-                            setPicked(meta);
-                            if (meta.clusterId) setActiveClusterId(meta.clusterId);
-                          } else {
-                            setPicked(null);
-                            if (meta.clusterId) setActiveClusterId(meta.clusterId);
-                          }
-                        }}
-                        activeClusterName={activeClusterName}
-                      />
-                    </div>
-
-                    {/* legend 固定在舞台右下角（在空位里，不会压到图） */}
-                    {showLegend ? (
-                      <div
-                        style={{
-                          position: "absolute",
-                          right: 12,
-                          bottom: 12,
-                          pointerEvents: "none",
-                        }}
-                      >
-                        <EmotionLegend />
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
+                  hoveredKey={hoveredKey}
+                  onHover={setHoveredKey}
+                />
+                <SentimentLegend stats={stats} />
               </div>
 
-
-              <div style={{ borderLeft: "1px solid #eee", paddingLeft: 16 }}>
+              {/* Right: detail panel */}
+              <div style={{ borderLeft: "1px solid #eee", paddingLeft: 20 }}>
                 {pickedTile ? (
-                  // ========== Article View ==========
                   <div>
                     <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
                       <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
-                        Cluster: <b>{picked.clusterName}</b> • Bucket: <b>{picked.bucket}</b>
+                        Cluster: <b>{picked.clusterName}</b> · Sentiment: <b style={{
+                          color: SENTIMENT_COLORS[picked.bucket as Sentiment]?.dark || "#555"
+                        }}>{picked.bucket}</b>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setPicked(null)}
-                        aria-label="Close details"
+                      <button type="button" onClick={() => setPicked(null)} aria-label="Close details"
                         style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: 999,
-                          border: "1px solid #e6e6e6",
-                          background: "#fff",
-                          cursor: "pointer",
-                          lineHeight: "26px",
-                          padding: 0,
-                        }}
-                      >
+                          width: 28, height: 28, borderRadius: 999,
+                          border: "1px solid #e6e6e6", background: "#fff",
+                          cursor: "pointer", lineHeight: "26px", padding: 0, flexShrink: 0,
+                        }}>
                         ×
                       </button>
                     </div>
@@ -750,7 +780,7 @@ export default function Mosaic() {
 
                     <div style={{ opacity: 0.7, marginBottom: 8 }}>
                       {tileDisplaySource(pickedTile)}{" "}
-                      {tileDisplayTime(pickedTile) ? `• ${tileDisplayTime(pickedTile)}` : ""}
+                      {tileDisplayTime(pickedTile) ? `· ${tileDisplayTime(pickedTile)}` : ""}
                     </div>
 
                     {pickedTile.one_line_takeaway ? (
@@ -763,80 +793,59 @@ export default function Mosaic() {
                           {pickedTile.tile_type}
                         </span>
                       ) : null}
-
                       {tileDisplayUrl(pickedTile) ? (
                         <a href={tileDisplayUrl(pickedTile)} target="_blank" rel="noreferrer">
                           Open article ↗
                         </a>
                       ) : null}
                     </div>
-
                   </div>
                 ) : (
-                  // ========== Summary View ==========
                   <div>
-                    {!activeCluster ? (
-                      <div className="empty">
-                        <div className="emptyTitle">Search a topic to build your mosaic.</div>
+                    {pickedCluster ? (
+                      <div>
+                        <h2 style={{ marginTop: 0 }}>
+                          {pickedCluster.summary?.cluster_title || `Cluster ${pickedCluster.cluster_id}`}
+                        </h2>
+                        {pickedCluster.summary?.what_happened ? (
+                          <p style={{ lineHeight: 1.55 }}>{pickedCluster.summary.what_happened}</p>
+                        ) : null}
                       </div>
                     ) : (
-                      <div>
-                        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
-                          Cluster: <b>{activeSummary?.cluster_title || `Cluster ${activeCluster.cluster_id}`}</b> •{" "}
-                          {activeCluster.items?.length ?? 0} tiles
+                      <div style={{ paddingTop: 40, textAlign: "center" }}>
+                        <div style={{ fontSize: 48, marginBottom: 16 }}>&#x1F9E9;</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 8 }}>
+                          Explore the mosaic
+                        </div>
+                        <div style={{ fontSize: 14, color: "#888", lineHeight: 1.6 }}>
+                          Hover over tiles to preview.<br />
+                          Click any tile to read details.
                         </div>
 
-                        <h2 style={{ marginTop: 0 }}>{activeSummary?.cluster_title || "Summary"}</h2>
-
-                        {activeSummary?.what_happened ? (
-                          <p style={{ lineHeight: 1.55 }}>{activeSummary.what_happened}</p>
-                        ) : (
-                          <p style={{ opacity: 0.7 }}>No summary returned. (Check backend /mosaic response)</p>
-                        )}
-
-                        {Array.isArray(activeSummary?.why_it_matters) && activeSummary.why_it_matters.length > 0 ? (
-                          <>
-                            <h3 style={{ marginBottom: 6 }}>Why it matters</h3>
-                            <ul style={{ marginTop: 6 }}>
-                              {activeSummary.why_it_matters.slice(0, 4).map((x: string, i: number) => (
-                                <li key={i}>{x}</li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : null}
-
-                        {Array.isArray(activeSummary?.what_to_watch) && activeSummary.what_to_watch.length > 0 ? (
-                          <>
-                            <h3 style={{ marginBottom: 6 }}>What to watch</h3>
-                            <ul style={{ marginTop: 6 }}>
-                              {activeSummary.what_to_watch.slice(0, 4).map((x: string, i: number) => (
-                                <li key={i}>{x}</li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : null}
-
-                        {Array.isArray(activeSummary?.timeline) && activeSummary.timeline.length > 0 ? (
-                          <>
-                            <h3 style={{ marginBottom: 6 }}>Timeline</h3>
-                            <ul style={{ marginTop: 6 }}>
-                              {activeSummary.timeline.slice(0, 4).map((t: any, i: number) => (
-                                <li key={i}>
-                                  <b>{t.time}</b> — {t.event}
-                                </li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : null}
-
-                        <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7 }}>
-                          Tip: click a tile on the left to read a specific article.
+                        {/* Cluster list */}
+                        <div style={{ marginTop: 28, textAlign: "left" }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>
+                            Clusters found
+                          </div>
+                          {clusters.map((c) => (
+                            <div key={c.cluster_id} style={{
+                              padding: "10px 14px", borderRadius: 12,
+                              background: "#fafafa", border: "1px solid #eee",
+                              marginBottom: 8, cursor: "default",
+                            }}>
+                              <div style={{ fontWeight: 700, fontSize: 14 }}>
+                                {c.summary?.cluster_title || `Cluster ${c.cluster_id}`}
+                              </div>
+                              <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+                                {c.items.length} articles
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
                   </div>
                 )}
-
               </div>
             </div>
           ) : (
