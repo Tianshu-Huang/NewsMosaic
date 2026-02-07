@@ -7,7 +7,7 @@ function typeClass(t: string) {
 
 export default function MosaicBoard({ cluster }: { cluster: any }) {
   return (
-    <div>
+    <div className="mosaicRoot" data-cluster={cluster.cluster_id}>
       <h2 className="boardTitle">{cluster.summary.cluster_title}</h2>
       <p className="boardDesc">{cluster.summary.what_happened}</p>
 
