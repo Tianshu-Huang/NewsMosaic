@@ -28,7 +28,7 @@ See the whole conversation — not just the algorithm’s favorite slice.
 ### 🏠 Landing Page
 *(Search for any topic to begin exploring)*
 
-![Landing Page](screenshots/landing)
+![Landing Page](screenshots/landing.png)
 
 ---
 
@@ -43,7 +43,7 @@ Each topic becomes a radial map of perspectives.
 
 🟢 Positive  ⚪ Neutral  🔴 Critical
 
-![Mosaic Example](screenshots/mosaic-openai)
+![Mosaic Example](screenshots/mosaic-openai.png)
 
 ---
 
@@ -51,7 +51,7 @@ Each topic becomes a radial map of perspectives.
 
 Different topics produce very different perspective balances.
 
-![Mosaic Climate Example](screenshots/mosaic-climate)
+![Mosaic Climate Example](screenshots/mosaic-climate.png)
 
 ---
 
