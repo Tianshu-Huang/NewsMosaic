@@ -1,9 +1,0 @@
-fastapi
-uvicorn[standard]
-pydantic>=2
-python-dotenv
-httpx
-numpy
-scikit-learn
-google-generativeai
-aiohttp
