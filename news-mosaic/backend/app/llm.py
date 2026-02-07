@@ -34,10 +34,16 @@ def fallback_tile(article: Article) -> Tile:
 
 def fallback_cluster_summary(articles: List[Article]) -> ClusterSummary:
     # 纯规则 summary：取最新一条标题当 cluster title，timeline 取前3条
-    title = articles[0].title if articles else "Event cluster"
+    if articles:
+        raw = articles[0].title
+        title = raw[:80].rstrip()
+        if len(raw) > 80:
+            title = title + "..."
+    else:
+        title = "Event cluster"
     timeline = [{"time": a.published_at, "event": a.title[:120]} for a in articles[:3]]
     return ClusterSummary(
-        cluster_title=title[:80],
+        cluster_title=title,
         what_happened=(articles[0].snippet or articles[0].title)[:240] if articles else "No items.",
         why_it_matters=[
             "This is a mock summary (LLM disabled).",
@@ -101,6 +107,10 @@ Respond with JSON containing: type (FACT/ANALYSIS/OPINION/UNVERIFIED), topic_tag
             tiles.append(fallback_tile(a))
 
     return tiles
+
+async def classify_tiles_fast(articles: List[Article]) -> List[Tile]:
+    # 直接返回 fallback，避免 LLM 延迟
+    return [fallback_tile(a) for a in articles]
 
 async def summarize_cluster(articles: List[Article]) -> ClusterSummary:
     # ✅ 无 key 直接 fallback，不会调用 Gemini
