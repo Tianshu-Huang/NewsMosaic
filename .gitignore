@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 venv/
+mosaic/
 
 # Node
 node_modules/
