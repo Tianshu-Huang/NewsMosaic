@@ -1,10 +1,11 @@
-import "./mosaic-flower.css";
-import "../components/MosaicLoading.css";
-import { useMemo, useState, useCallback } from "react";
+import "../styles.css";
+import { useMemo, useState, useCallback, useRef } from "react";
 import * as d3 from "d3";
 import { buildMosaic } from "../api";
 
-/* ── Types ── */
+/* ══════════════════════════════════════════
+   Types
+   ══════════════════════════════════════════ */
 type Tile = {
   title?: string;
   url?: string;
@@ -34,7 +35,9 @@ type Cluster = {
 
 type Sentiment = "positive" | "neutral" | "critical";
 
-/* ── Helpers ── */
+/* ══════════════════════════════════════════
+   Helpers
+   ══════════════════════════════════════════ */
 function tileDisplayTitle(tile: Tile): string {
   return tile.article?.title || tile.title || "Untitled";
 }
@@ -67,69 +70,43 @@ function tileIntensity01(tile: Tile): number {
   return Math.max(0, Math.min(1, x));
 }
 
-/* ── Sentiment-first sunburst data ──
-   Root
-   ├── positive (all positive tiles across all clusters)
-   ├── neutral
-   └── critical
-   Each sentiment group contains tiles directly (flattened).
-   This groups colors logically and reduces visual layers.
-*/
+/* ══════════════════════════════════════════
+   Sunburst data — sentiment-first hierarchy
+   Root → positive | neutral | critical → tiles
+   ══════════════════════════════════════════ */
 type SunLeaf = { name: string; value: number; meta: any };
 type SunBranch = { name: string; children: (SunLeaf | SunBranch)[]; meta?: any };
 type SunNode = SunLeaf | SunBranch;
 
 function buildSunData(query: string, clusters: Cluster[]): SunNode {
-  const buckets: Record<Sentiment, SunLeaf[]> = {
-    positive: [],
-    neutral: [],
-    critical: [],
-  };
+  const buckets: Record<Sentiment, SunLeaf[]> = { positive: [], neutral: [], critical: [] };
 
   for (const c of clusters) {
-    const clusterName =
-      c.summary?.cluster_title
-        ? String(c.summary.cluster_title)
-        : `Cluster ${c.cluster_id}`;
+    const clusterName = c.summary?.cluster_title ? String(c.summary.cluster_title) : `Cluster ${c.cluster_id}`;
     for (const tile of c.items) {
       const bucket = emotionBucket(tile);
       buckets[bucket].push({
         name: tileDisplayTitle(tile),
         value: 1,
-        meta: {
-          kind: "tile",
-          tile,
-          clusterId: c.cluster_id,
-          clusterName,
-          bucket,
-        },
+        meta: { kind: "tile", tile, clusterId: c.cluster_id, clusterName, bucket },
       });
     }
   }
 
   const children: SunBranch[] = [];
-  const order: Sentiment[] = ["positive", "neutral", "critical"];
-  for (const s of order) {
+  for (const s of ["positive", "neutral", "critical"] as Sentiment[]) {
     if (buckets[s].length > 0) {
-      children.push({
-        name: s,
-        meta: { kind: "sentiment", sentiment: s },
-        children: buckets[s],
-      });
+      children.push({ name: s, meta: { kind: "sentiment", sentiment: s }, children: buckets[s] });
     }
   }
-
-  return {
-    name: query || "Topic",
-    children,
-  };
+  return { name: query || "Topic", children };
 }
 
-/* ── Sentiment stats ── */
+/* ══════════════════════════════════════════
+   Sentiment stats
+   ══════════════════════════════════════════ */
 function computeSentimentStats(clusters: Cluster[]) {
-  let pos = 0,
-    neu = 0,
-    crit = 0;
+  let pos = 0, neu = 0, crit = 0;
   for (const c of clusters) {
     for (const t of c.items) {
       const b = emotionBucket(t);
@@ -147,148 +124,90 @@ function computeSentimentStats(clusters: Cluster[]) {
   };
 }
 
-/* ── Sentiment colors ── */
-const SENTIMENT_COLORS: Record<Sentiment, { light: string; dark: string; ring: string; label: string }> = {
-  positive: { light: "#dff7e6", dark: "#1b7f3a", ring: "#bfe8c8", label: "Positive" },
-  neutral: { light: "#f0f0f0", dark: "#555555", ring: "#e2e2e2", label: "Neutral" },
-  critical: { light: "#fde2e2", dark: "#b42318", ring: "#f3c1c1", label: "Critical" },
-};
+/* ══════════════════════════════════════════
+   Design tokens — refined, mosaic-inspired
+   ══════════════════════════════════════════ */
+const SENTIMENT = {
+  positive: { light: "#e3f5ea", mid: "#86d9a1", dark: "#248a49", ring: "#a8e4bb", label: "Positive" },
+  neutral:  { light: "#eeece8", mid: "#c5c1ba", dark: "#6b6760", ring: "#d6d2cc", label: "Neutral" },
+  critical: { light: "#fce4e1", mid: "#f0a09a", dark: "#c0352c", ring: "#f0b5b0", label: "Critical" },
+} as const;
 
-/* ── Sunburst component ── */
+/* ══════════════════════════════════════════
+   Sunburst
+   ══════════════════════════════════════════ */
 function Sunburst({
-  data,
-  query,
-  stats,
-  width = 600,
-  height = 600,
-  onPick,
-  hoveredKey,
-  onHover,
+  data, query, stats, width = 520, height = 520, onPick, hoveredKey, onHover,
 }: {
-  data: SunNode;
-  query: string;
-  stats: ReturnType<typeof computeSentimentStats>;
-  width?: number;
-  height?: number;
-  onPick: (meta: any) => void;
-  hoveredKey: string | null;
-  onHover: (key: string | null) => void;
+  data: SunNode; query: string; stats: ReturnType<typeof computeSentimentStats>;
+  width?: number; height?: number;
+  onPick: (meta: any) => void; hoveredKey: string | null; onHover: (key: string | null) => void;
 }) {
   const computed = useMemo(() => {
-    const radius = Math.min(width, height) / 2 - 20;
-    const centerRadius = radius * 0.22;
+    const radius = Math.min(width, height) / 2 - 16;
+    const centerR = radius * 0.24;
 
-    const root = d3
-      .hierarchy<any>(data as any)
-      .sum((d) => d.value || 0)
-      .sort(() => 0);
-
+    const root = d3.hierarchy<any>(data as any).sum((d) => d.value || 0).sort(() => 0);
     const partition = d3.partition<any>().size([2 * Math.PI, radius]);
     partition(root);
 
-    const arc = d3
-      .arc<any>()
-      .startAngle((d) => d.x0)
-      .endAngle((d) => d.x1)
-      .innerRadius((d) => Math.max(d.y0, centerRadius))
-      .outerRadius((d) => d.y1)
-      .padAngle(0.008)
-      .cornerRadius(4);
+    const arc = d3.arc<any>()
+      .startAngle((d) => d.x0).endAngle((d) => d.x1)
+      .innerRadius((d) => Math.max(d.y0, centerR)).outerRadius((d) => d.y1)
+      .padAngle(0.012).cornerRadius(3);
 
     function fillFor(d: any): string {
-      const name = String(d.data.name);
-
-      // depth 1: sentiment ring
       if (d.depth === 1) {
-        const s = name as Sentiment;
-        return SENTIMENT_COLORS[s]?.ring || "#e6e6e6";
+        const s = d.data.name as Sentiment;
+        return SENTIMENT[s]?.ring || "#ddd";
       }
-
-      // depth 2: leaf tiles — color by sentiment + intensity
       const tile = d.data?.meta?.tile;
       if (!tile) return "#ddd";
-
       const bucket = (d.data?.meta?.bucket || "neutral") as Sentiment;
       const inten = tileIntensity01(tile);
-      const colors = SENTIMENT_COLORS[bucket] || SENTIMENT_COLORS.neutral;
-      return d3.interpolateRgb(colors.light, colors.dark)(inten * 0.7 + 0.15);
+      const c = SENTIMENT[bucket] || SENTIMENT.neutral;
+      return d3.interpolateRgb(c.light, c.dark)(inten * 0.6 + 0.18);
     }
 
     const nodes = root.descendants().filter((d) => d.depth > 0);
-
     return {
-      viewBox: `${-width / 2} ${-height / 2} ${width} ${height}`,
-      centerRadius,
+      vb: `${-width / 2} ${-height / 2} ${width} ${height}`,
+      centerR,
       nodes: nodes.map((d) => {
-        const key = d.data.name + "|" + d.depth + "|" + d.x0.toFixed(4);
+        const key = `${d.data.name}|${d.depth}|${d.x0.toFixed(4)}`;
+        const midA = (d.x0 + d.x1) / 2;
+        const midR = (Math.max(d.y0, centerR) + d.y1) / 2;
         return {
-          key,
-          d,
-          path: arc(d) || "",
-          fill: fillFor(d),
-          clickable: !!d.data?.meta,
-          isLeaf: !d.children,
-          sentiment:
-            d.depth === 1
-              ? (d.data.name as Sentiment)
-              : (d.data?.meta?.bucket as Sentiment) || "neutral",
-          title:
-            d.depth === 2 && d.data?.meta?.tile
-              ? `${tileDisplayTitle(d.data.meta.tile)}\n${tileDisplaySource(d.data.meta.tile)} · ${tileDisplayTime(d.data.meta.tile)}\n${d.data.meta.tile.one_line_takeaway || ""}`
-              : String(d.data.name),
+          key, d, path: arc(d) || "", fill: fillFor(d),
+          clickable: !!d.data?.meta, isLeaf: !d.children,
+          cx: Math.sin(midA) * midR, cy: -Math.cos(midA) * midR,
+          title: d.depth === 2 && d.data?.meta?.tile
+            ? `${tileDisplayTitle(d.data.meta.tile)}\n${tileDisplaySource(d.data.meta.tile)} · ${tileDisplayTime(d.data.meta.tile)}\n${d.data.meta.tile.one_line_takeaway || ""}`
+            : String(d.data.name),
         };
       }),
     };
   }, [data, width, height]);
 
   return (
-    <svg
-      viewBox={computed.viewBox}
-      width={width}
-      height={height}
-      aria-label="Mosaic sunburst"
-      style={{ display: "block" }}
-    >
-      <defs>
-        <filter id="tile-shadow">
-          <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.15" />
-        </filter>
-      </defs>
-
+    <svg viewBox={computed.vb} width={width} height={height} style={{ display: "block" }}>
       <g>
         {computed.nodes.map((n) => {
-          const isHovered = hoveredKey === n.key;
-          const scale = isHovered && n.isLeaf ? 1.08 : 1;
-
-          // Calculate center of the arc for transform-origin
-          const midAngle = (n.d.x0 + n.d.x1) / 2;
-          const midRadius = (Math.max(n.d.y0, computed.centerRadius) + n.d.y1) / 2;
-          const cx = Math.sin(midAngle) * midRadius;
-          const cy = -Math.cos(midAngle) * midRadius;
-
+          const hov = hoveredKey === n.key && n.isLeaf;
           return (
-            <path
-              key={n.key}
-              d={n.path}
-              fill={n.fill}
-              stroke={n.isLeaf ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.9)"}
-              strokeWidth={n.isLeaf ? 1.5 : 2.5}
+            <path key={n.key} d={n.path} fill={n.fill}
+              stroke={n.isLeaf ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.85)"}
+              strokeWidth={n.isLeaf ? 1.2 : 2}
               style={{
                 cursor: n.clickable ? "pointer" : "default",
-                transform: isHovered && n.isLeaf
-                  ? `translate(${cx * 0.06}px, ${cy * 0.06}px) scale(${scale})`
-                  : "none",
-                transformOrigin: `${cx}px ${cy}px`,
-                transition: "transform 180ms ease, filter 180ms ease",
-                filter: isHovered && n.isLeaf
-                  ? "drop-shadow(0 4px 12px rgba(0,0,0,0.2))"
-                  : "none",
+                transform: hov ? `translate(${n.cx * 0.05}px, ${n.cy * 0.05}px) scale(1.06)` : "none",
+                transformOrigin: `${n.cx}px ${n.cy}px`,
+                transition: "transform 200ms cubic-bezier(.34,1.56,.64,1), filter 200ms ease",
+                filter: hov ? "drop-shadow(0 3px 10px rgba(0,0,0,0.18)) brightness(1.08)" : "none",
               }}
               onMouseEnter={() => onHover(n.key)}
               onMouseLeave={() => onHover(null)}
-              onClick={() => {
-                if (n.clickable) onPick(n.d.data.meta);
-              }}
+              onClick={() => { if (n.clickable) onPick(n.d.data.meta); }}
             >
               <title>{n.title}</title>
             </path>
@@ -296,54 +215,38 @@ function Sunburst({
         })}
       </g>
 
-      {/* Center circle */}
-      <circle
-        cx={0}
-        cy={0}
-        r={computed.centerRadius}
-        fill="white"
-        stroke="#e8e8e8"
-        strokeWidth={2}
-      />
+      {/* Center circle — frosted glass look */}
+      <circle cx={0} cy={0} r={computed.centerR} fill="rgba(255,255,255,0.92)"
+        stroke="rgba(0,0,0,0.06)" strokeWidth={1} />
 
-      {/* Center content: query + stats */}
-      <text
-        x={0}
-        y={-14}
-        textAnchor="middle"
-        dominantBaseline="middle"
-        fontSize={14}
-        fontWeight={800}
-        fill="#333"
-      >
-        {query.length > 18 ? query.slice(0, 16) + "…" : query}
+      {/* Query text */}
+      <text x={0} y={-12} textAnchor="middle" dominantBaseline="middle"
+        fontSize={13} fontWeight={700} fill="#1d1d1f"
+        fontFamily="-apple-system, BlinkMacSystemFont, sans-serif"
+        style={{ letterSpacing: "-0.2px" }}>
+        {query.length > 14 ? query.slice(0, 13) + "\u2026" : query}
       </text>
 
-      <text
-        x={0}
-        y={6}
-        textAnchor="middle"
-        dominantBaseline="middle"
-        fontSize={10}
-        fill="#888"
-      >
+      <text x={0} y={6} textAnchor="middle" dominantBaseline="middle"
+        fontSize={10} fill="#8e8e93"
+        fontFamily="-apple-system, BlinkMacSystemFont, sans-serif">
         {stats.total} articles
       </text>
 
-      {/* Mini sentiment bars in center */}
+      {/* Mini sentiment bar */}
       {(() => {
-        const barWidth = computed.centerRadius * 1.2;
-        const barHeight = 5;
-        const y = 22;
-        const startX = -barWidth / 2;
-        const posW = (stats.positive.pct / 100) * barWidth;
-        const neuW = (stats.neutral.pct / 100) * barWidth;
-        const critW = (stats.critical.pct / 100) * barWidth;
+        const bw = computed.centerR * 1.1;
+        const bh = 4;
+        const by = 20;
+        const sx = -bw / 2;
+        const pw = (stats.positive.pct / 100) * bw;
+        const nw = (stats.neutral.pct / 100) * bw;
+        const cw = (stats.critical.pct / 100) * bw;
         return (
           <g>
-            <rect x={startX} y={y} width={posW} height={barHeight} rx={2.5} fill={SENTIMENT_COLORS.positive.ring} />
-            <rect x={startX + posW} y={y} width={neuW} height={barHeight} rx={0} fill={SENTIMENT_COLORS.neutral.ring} />
-            <rect x={startX + posW + neuW} y={y} width={critW} height={barHeight} rx={2.5} fill={SENTIMENT_COLORS.critical.ring} />
+            <rect x={sx} y={by} width={pw || 0} height={bh} rx={2} fill={SENTIMENT.positive.mid} />
+            <rect x={sx + pw} y={by} width={nw || 0} height={bh} fill={SENTIMENT.neutral.mid} />
+            <rect x={sx + pw + nw} y={by} width={cw || 0} height={bh} rx={2} fill={SENTIMENT.critical.mid} />
           </g>
         );
       })()}
@@ -351,64 +254,67 @@ function Sunburst({
   );
 }
 
-/* ── Loading overlay ── */
+/* ══════════════════════════════════════════
+   Sentiment Legend
+   ══════════════════════════════════════════ */
+function SentimentLegend({ stats }: { stats: ReturnType<typeof computeSentimentStats> }) {
+  const items = [
+    { key: "positive" as const, ...SENTIMENT.positive, ...stats.positive },
+    { key: "neutral" as const, ...SENTIMENT.neutral, ...stats.neutral },
+    { key: "critical" as const, ...SENTIMENT.critical, ...stats.critical },
+  ];
+  return (
+    <div style={{
+      display: "flex", gap: 24, justifyContent: "center",
+      padding: "8px 0",
+    }}>
+      {items.map((it) => (
+        <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{
+            width: 10, height: 10, borderRadius: 3,
+            background: `linear-gradient(135deg, ${it.mid}, ${it.dark})`,
+          }} />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "#6e6e73" }}>
+            {it.label}
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#1d1d1f" }}>
+            {it.pct}%
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   Loading Overlay — mosaic animation
+   ══════════════════════════════════════════ */
 function mulberry32(seed: number) {
   let t = seed >>> 0;
-  return function () {
-    t += 0x6d2b79f5;
-    let x = Math.imul(t ^ (t >>> 15), 1 | t);
-    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
-    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-  };
+  return () => { t += 0x6d2b79f5; let x = Math.imul(t ^ (t >>> 15), 1 | t); x ^= x + Math.imul(x ^ (x >>> 7), 61 | x); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
 }
-function clamp(n: number, a: number, b: number) {
-  return Math.max(a, Math.min(b, n));
-}
+function clamp(n: number, a: number, b: number) { return Math.max(a, Math.min(b, n)); }
 
-type LoadingTile = {
-  id: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  hue: number;
-  sat: number;
-  lig: number;
-  delay: number;
-  dur: number;
-};
-
-function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: string; seed: number }) {
+function MosaicLoading({ loading, seed }: { loading: boolean; seed: number }) {
   const tiles = useMemo(() => {
-    const cols = 14;
-    const rows = 9;
+    const cols = 14, rows = 9;
     const rand = mulberry32(seed);
-    const list: LoadingTile[] = [];
+    const list: { id: string; x: number; y: number; w: number; h: number; hue: number; sat: number; lig: number; delay: number; dur: number }[] = [];
     const used = new Set<string>();
     const key = (c: number, r: number) => `${c},${r}`;
-
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (used.has(key(c, r))) continue;
         const pick = rand();
         let w = 1, h = 1;
-        if (pick > 0.88) { w = 2; h = 2; }
-        else if (pick > 0.74) { w = 2; h = 1; }
-        else if (pick > 0.60) { w = 1; h = 2; }
+        if (pick > 0.88) { w = 2; h = 2; } else if (pick > 0.74) { w = 2; } else if (pick > 0.60) { h = 2; }
         if (c + w > cols) w = 1;
         if (r + h > rows) h = 1;
-        for (let rr = r; rr < r + h; rr++)
-          for (let cc = c; cc < c + w; cc++)
-            used.add(key(cc, rr));
-
+        for (let rr = r; rr < r + h; rr++) for (let cc = c; cc < c + w; cc++) used.add(key(cc, rr));
         list.push({
-          id: `${c}-${r}`,
-          x: c, y: r, w, h,
-          hue: Math.floor(rand() * 360),
-          sat: clamp(55 + rand() * 25, 45, 85),
-          lig: clamp(32 + rand() * 28, 26, 64),
-          delay: rand() * 0.8,
-          dur: 1.8 + rand() * 1.8,
+          id: `${c}-${r}`, x: c, y: r, w, h,
+          hue: Math.floor(rand() * 360), sat: clamp(55 + rand() * 25, 45, 85), lig: clamp(32 + rand() * 28, 26, 64),
+          delay: rand() * 0.8, dur: 1.8 + rand() * 1.8,
         });
       }
     }
@@ -419,27 +325,28 @@ function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: str
   .ml-wrap{position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:0;transition:opacity 220ms ease;
     background:radial-gradient(1100px 680px at 10% 5%, #ffffff 0%, #f4f6fb 35%, #eef1f7 70%, #e8ebf2 100%);}
   .ml-wrap.is-on{opacity:1}
-  .ml-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--cols),1fr);grid-template-rows:repeat(var(--rows),1fr);gap:10px;padding:18px;}
-  .ml-tile{grid-column:calc(var(--x) + 1)/span var(--w);grid-row:calc(var(--y) + 1)/span var(--h);border-radius:16px;overflow:hidden;
+  .ml-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--cols),1fr);grid-template-rows:repeat(var(--rows),1fr);gap:4px;padding:4px;}
+  .ml-tile{grid-column:calc(var(--x) + 1)/span var(--w);grid-row:calc(var(--y) + 1)/span var(--h);border-radius:14px;overflow:hidden;
     box-shadow:0 10px 30px rgba(20,24,35,.10),0 2px 8px rgba(20,24,35,.08);}
   .ml-inner{width:100%;height:100%;
     background:radial-gradient(420px 240px at 25% 20%, rgba(255,255,255,.55), rgba(255,255,255,0) 55%),
     linear-gradient(135deg,hsla(var(--hue),var(--sat),calc(var(--lig) + 14%),.92),hsla(calc(var(--hue) + 22),calc(var(--sat) - 10%),calc(var(--lig) - 4%),.92));
     border:1px solid rgba(255,255,255,.55);backdrop-filter:blur(10px);
-    animation:mlPulse var(--t) ease-in-out var(--d) infinite;}
-  @keyframes mlPulse{0%{transform:translateY(0) scale(1);opacity:.88}
-    35%{transform:translateY(-4px) scale(1.01);opacity:1}
-    70%{transform:translateY(3px) scale(.995);opacity:.92}
-    100%{transform:translateY(0) scale(1);opacity:.88}}
-  .ml-center{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;}
-  .ml-pill{display:inline-flex;align-items:center;gap:10px;padding:12px 14px;border-radius:999px;background:rgba(255,255,255,.72);
-    border:1px solid rgba(18,20,28,.10);box-shadow:0 18px 50px rgba(20,24,35,.12);backdrop-filter:blur(12px);
-    font-weight:900;letter-spacing:.02em;color:rgba(18,20,28,.72);}
-  .ml-dot{width:10px;height:10px;border-radius:999px;background:linear-gradient(135deg,#ff4fd8,#7c5cff);box-shadow:0 6px 18px rgba(124,92,255,.25);
-    animation:mlDot .9s ease-in-out infinite;}
-  @keyframes mlDot{0%,100%{transform:scale(.9);opacity:.7}50%{transform:scale(1.15);opacity:1}}
-  .ml-sub{margin-top:10px;font-size:12px;color:rgba(18,20,28,.55)}
-  .ml-vignette{position:absolute;inset:-40px;pointer-events:none;background:radial-gradient(1200px 650px at 50% 40%, rgba(0,0,0,0) 58%, rgba(0,0,0,.10) 100%);}
+    animation:mlP var(--t) ease-in-out var(--d) infinite;}
+  @keyframes mlP{0%{transform:translateY(0) scale(1);opacity:.88;filter:blur(0) saturate(1.05)}
+    35%{transform:translateY(-4px) scale(1.01);opacity:1;filter:blur(0) saturate(1.12)}
+    70%{transform:translateY(3px) scale(.995);opacity:.92;filter:blur(.2px) saturate(1.05)}
+    100%{transform:translateY(0) scale(1);opacity:.88;filter:blur(0) saturate(1.05)}}
+  .ml-ctr{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;}
+  .ml-pill{display:inline-flex;align-items:center;gap:10px;padding:14px 22px;border-radius:999px;
+    background:rgba(255,255,255,.82);border:1px solid rgba(0,0,0,.06);
+    box-shadow:0 12px 40px rgba(0,0,0,.10);backdrop-filter:blur(16px);
+    font-weight:700;font-size:14px;letter-spacing:-.1px;color:#1d1d1f;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
+  .ml-dot{width:8px;height:8px;border-radius:999px;background:var(--accent,#6b5ce7);
+    animation:mlD .9s ease-in-out infinite;}
+  @keyframes mlD{0%,100%{transform:scale(.85);opacity:.6}50%{transform:scale(1.2);opacity:1}}
+  .ml-sub{margin-top:8px;font-size:12px;color:#8e8e93;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
   `;
 
   return (
@@ -448,79 +355,31 @@ function MosaicLoading({ loading, label, seed }: { loading: boolean; label?: str
       <div className={`ml-wrap ${loading ? "is-on" : ""}`} aria-hidden={!loading}>
         <div className="ml-grid" style={{ ["--cols" as any]: tiles.cols, ["--rows" as any]: tiles.rows } as React.CSSProperties}>
           {tiles.list.map((t) => (
-            <div key={t.id} className="ml-tile"
-              style={{
-                ["--x" as any]: t.x, ["--y" as any]: t.y,
-                ["--w" as any]: t.w, ["--h" as any]: t.h,
-                ["--hue" as any]: t.hue, ["--sat" as any]: `${t.sat}%`,
-                ["--lig" as any]: `${t.lig}%`, ["--d" as any]: `${t.delay}s`,
-                ["--t" as any]: `${t.dur}s`,
-              } as React.CSSProperties}
-            >
+            <div key={t.id} className="ml-tile" style={{
+              ["--x" as any]: t.x, ["--y" as any]: t.y, ["--w" as any]: t.w, ["--h" as any]: t.h,
+              ["--hue" as any]: t.hue, ["--sat" as any]: `${t.sat}%`, ["--lig" as any]: `${t.lig}%`,
+              ["--d" as any]: `${t.delay}s`, ["--t" as any]: `${t.dur}s`,
+            } as React.CSSProperties}>
               <div className="ml-inner" />
             </div>
           ))}
         </div>
-        <div className="ml-center">
-          <div className="ml-pill">
-            <span className="ml-dot" />
-            {label || "Building mosaic…"}
-          </div>
-          <div className="ml-sub">Fetching clusters & building tiles…</div>
+        <div className="ml-ctr">
+          <div className="ml-pill"><span className="ml-dot" />Building mosaic…</div>
+          <div className="ml-sub">Gathering & clustering articles</div>
         </div>
-        <div className="ml-vignette" />
       </div>
     </>
   );
 }
 
-/* ── Sentiment Legend with percentages ── */
-function SentimentLegend({ stats }: { stats: ReturnType<typeof computeSentimentStats> }) {
-  const items: { key: Sentiment; label: string; color: string; pct: number; count: number }[] = [
-    { key: "positive", label: "Positive", color: SENTIMENT_COLORS.positive.ring, pct: stats.positive.pct, count: stats.positive.count },
-    { key: "neutral", label: "Neutral", color: SENTIMENT_COLORS.neutral.ring, pct: stats.neutral.pct, count: stats.neutral.count },
-    { key: "critical", label: "Critical", color: SENTIMENT_COLORS.critical.ring, pct: stats.critical.pct, count: stats.critical.count },
-  ];
-
-  return (
-    <div style={{
-      display: "flex", gap: 20, justifyContent: "center",
-      padding: "10px 20px", borderRadius: 14,
-      background: "rgba(255,255,255,0.85)",
-      border: "1px solid rgba(0,0,0,0.06)",
-      boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
-      backdropFilter: "blur(6px)",
-    }}>
-      {items.map((it) => (
-        <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{
-            width: 12, height: 12, borderRadius: 3,
-            background: it.color,
-            border: "1px solid rgba(0,0,0,0.1)",
-          }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#444" }}>
-            {it.label}
-          </span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#222" }}>
-            {it.pct}%
-          </span>
-          <span style={{ fontSize: 11, color: "#999" }}>
-            ({it.count})
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ── Landing Page ── */
+/* ══════════════════════════════════════════
+   Landing Page
+   ══════════════════════════════════════════ */
 function LandingPage({ onSearch }: { onSearch: (q: string) => void }) {
   const [input, setInput] = useState("");
-  const seed = 2026;
   const tiles = useMemo(() => {
-    const cols = 16;
-    const rows = 10;
-    const rand = mulberry32(seed);
+    const cols = 16, rows = 10, rand = mulberry32(2026);
     const list: { id: string; x: number; y: number; w: number; h: number; hue: number; sat: number; lig: number; delay: number; dur: number }[] = [];
     const used = new Set<string>();
     const key = (c: number, r: number) => `${c},${r}`;
@@ -529,140 +388,339 @@ function LandingPage({ onSearch }: { onSearch: (q: string) => void }) {
         if (used.has(key(c, r))) continue;
         const pick = rand();
         let w = 1, h = 1;
-        if (pick > 0.86) { w = 2; h = 2; }
-        else if (pick > 0.72) { w = 2; h = 1; }
-        else if (pick > 0.58) { w = 1; h = 2; }
-        if (c + w > cols) w = 1;
-        if (r + h > rows) h = 1;
-        for (let rr = r; rr < r + h; rr++)
-          for (let cc = c; cc < c + w; cc++)
-            used.add(key(cc, rr));
+        if (pick > 0.86) { w = 2; h = 2; } else if (pick > 0.72) { w = 2; } else if (pick > 0.58) { h = 2; }
+        if (c + w > cols) w = 1; if (r + h > rows) h = 1;
+        for (let rr = r; rr < r + h; rr++) for (let cc = c; cc < c + w; cc++) used.add(key(cc, rr));
         list.push({
           id: `${c}-${r}`, x: c, y: r, w, h,
-          hue: Math.floor(rand() * 360),
-          sat: clamp(55 + rand() * 30, 45, 85),
-          lig: clamp(35 + rand() * 25, 28, 62),
-          delay: rand() * 0.8,
-          dur: 2.6 + rand() * 2.6,
+          hue: Math.floor(rand() * 360), sat: clamp(55 + rand() * 30, 45, 85), lig: clamp(35 + rand() * 25, 28, 62),
+          delay: rand() * 0.8, dur: 2.6 + rand() * 2.6,
         });
       }
     }
     return { cols, rows, list };
   }, []);
 
-  const handleSubmit = useCallback(() => {
-    const q = input.trim();
-    if (q) onSearch(q);
-  }, [input, onSearch]);
+  const submit = useCallback(() => { const q = input.trim(); if (q) onSearch(q); }, [input, onSearch]);
 
-  const landingCss = `
-  .landing-wrap{position:fixed;inset:0;z-index:100;overflow:hidden;
+  const css = `
+  .ld-wrap{position:fixed;inset:0;z-index:100;overflow:hidden;
     background:radial-gradient(ellipse at 20% 20%, #f8f9fd 0%, #eef1f7 50%, #e4e8f0 100%);}
-  .landing-grid{position:absolute;inset:0;display:grid;
+  .ld-grid{position:absolute;inset:0;display:grid;
     grid-template-columns:repeat(var(--cols),1fr);grid-template-rows:repeat(var(--rows),1fr);
-    gap:8px;padding:14px;opacity:0.35;}
-  .landing-tile{grid-column:calc(var(--x)+1)/span var(--w);grid-row:calc(var(--y)+1)/span var(--h);
-    border-radius:14px;overflow:hidden;
+    gap:4px;padding:4px;opacity:0.38;}
+  .ld-tile{grid-column:calc(var(--x) + 1)/span var(--w);grid-row:calc(var(--y) + 1)/span var(--h);
+    border-radius:12px;overflow:hidden;
     box-shadow:0 8px 24px rgba(20,24,35,.08);}
-  .landing-tile-inner{width:100%;height:100%;
+  .ld-ti{width:100%;height:100%;
     background:radial-gradient(300px 180px at 25% 20%, rgba(255,255,255,.5), rgba(255,255,255,0) 55%),
-    linear-gradient(135deg,hsla(var(--hue),var(--sat),calc(var(--lig)+12%),.85),hsla(calc(var(--hue)+20),calc(var(--sat)-8%),calc(var(--lig)-3%),.85));
+    linear-gradient(135deg,hsla(var(--hue),var(--sat),calc(var(--lig) + 12%),.85),hsla(calc(var(--hue) + 20),calc(var(--sat) - 8%),calc(var(--lig) - 3%),.85));
     border:1px solid rgba(255,255,255,.45);
-    animation:landingFloat var(--t) ease-in-out var(--d) infinite;}
-  @keyframes landingFloat{0%{transform:translateY(0) scale(1);opacity:.85}
-    50%{transform:translateY(-3px) scale(1.005);opacity:1}
+    animation:ldF var(--t) ease-in-out var(--d) infinite;}
+  @keyframes ldF{0%{transform:translateY(0) scale(1);opacity:.85}
+    35%{transform:translateY(-3px) scale(1.005);opacity:1}
+    70%{transform:translateY(2px) scale(.998);opacity:.9}
     100%{transform:translateY(0) scale(1);opacity:.85}}
-  .landing-center{position:absolute;inset:0;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;z-index:10;}
-  .landing-glass{padding:48px 56px;border-radius:28px;
-    background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.6);
-    box-shadow:0 24px 60px rgba(0,0,0,.10),0 0 0 1px rgba(0,0,0,.04);
-    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-    text-align:center;max-width:520px;width:90%;}
-  .landing-badge{display:inline-block;padding:4px 14px;border-radius:999px;
-    background:linear-gradient(135deg,rgba(124,92,255,.12),rgba(255,79,216,.10));
-    color:#7c5cff;font-size:11px;font-weight:800;letter-spacing:1.5px;margin-bottom:16px;}
-  .landing-title{font-size:42px;font-weight:900;letter-spacing:-1px;
-    color:#1a1a2e;margin:0 0 8px;line-height:1.1;}
-  .landing-sub{font-size:15px;color:#666;margin:0 0 28px;line-height:1.5;}
-  .landing-search{display:flex;gap:0;border-radius:16px;overflow:hidden;
-    border:2px solid rgba(0,0,0,.08);background:#fff;
-    box-shadow:0 8px 28px rgba(0,0,0,.06);}
-  .landing-input{flex:1;padding:14px 18px;border:none;outline:none;font-size:16px;
-    font-family:inherit;background:transparent;color:#222;}
-  .landing-btn{padding:14px 28px;border:none;
-    background:linear-gradient(135deg,#7c5cff,#5a3fd6);color:white;
-    font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;
-    transition:opacity 150ms ease;}
-  .landing-btn:hover{opacity:0.9;}
-  .landing-hint{margin-top:16px;font-size:12px;color:#999;}
-  .landing-vignette{position:absolute;inset:-40px;pointer-events:none;
-    background:radial-gradient(1200px 700px at 50% 40%, transparent 50%, rgba(0,0,0,.06) 100%);}
+
+  .ld-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;}
+  .ld-card{padding:52px 60px;border-radius:28px;
+    background:rgba(255,255,255,.82);border:1px solid rgba(255,255,255,.7);
+    box-shadow:0 24px 80px rgba(0,0,0,.08),0 0 0 1px rgba(0,0,0,.03);
+    backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);
+    text-align:center;max-width:480px;width:88%;}
+  .ld-icon{font-size:44px;margin-bottom:12px;}
+  .ld-title{font-size:36px;font-weight:800;letter-spacing:-1.2px;
+    color:#1d1d1f;margin:0 0 6px;line-height:1.1;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif;}
+  .ld-sub{font-size:15px;color:#8e8e93;margin:0 0 32px;line-height:1.6;font-weight:400;}
+  .ld-search{display:flex;border-radius:14px;overflow:hidden;
+    border:2px solid rgba(0,0,0,.06);background:#fff;
+    box-shadow:0 4px 20px rgba(0,0,0,.05);transition:border-color 200ms ease,box-shadow 200ms ease;}
+  .ld-search:focus-within{border-color:#6b5ce7;box-shadow:0 4px 20px rgba(107,92,231,.12);}
+  .ld-input{flex:1;padding:14px 18px;border:none;outline:none;font-size:16px;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:transparent;color:#1d1d1f;}
+  .ld-input::placeholder{color:#c7c7cc;}
+  .ld-btn{padding:14px 26px;border:none;
+    background:#6b5ce7;color:white;
+    font-size:15px;font-weight:600;cursor:pointer;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+    transition:background 150ms ease;}
+  .ld-btn:hover{background:#5a4bd6;}
+  .ld-hint{margin-top:14px;font-size:11px;color:#c7c7cc;font-weight:500;letter-spacing:.2px;}
   `;
 
   return (
     <>
-      <style>{landingCss}</style>
-      <div className="landing-wrap">
-        <div className="landing-grid"
-          style={{ ["--cols" as any]: tiles.cols, ["--rows" as any]: tiles.rows } as React.CSSProperties}>
+      <style>{css}</style>
+      <div className="ld-wrap">
+        <div className="ld-grid" style={{ ["--cols" as any]: tiles.cols, ["--rows" as any]: tiles.rows } as React.CSSProperties}>
           {tiles.list.map((t) => (
-            <div key={t.id} className="landing-tile"
-              style={{
-                ["--x" as any]: t.x, ["--y" as any]: t.y,
-                ["--w" as any]: t.w, ["--h" as any]: t.h,
-                ["--hue" as any]: t.hue, ["--sat" as any]: `${t.sat}%`,
-                ["--lig" as any]: `${t.lig}%`, ["--d" as any]: `${t.delay}s`,
-                ["--t" as any]: `${t.dur}s`,
-              } as React.CSSProperties}>
-              <div className="landing-tile-inner" />
+            <div key={t.id} className="ld-tile" style={{
+              ["--x" as any]: t.x, ["--y" as any]: t.y, ["--w" as any]: t.w, ["--h" as any]: t.h,
+              ["--hue" as any]: t.hue, ["--sat" as any]: `${t.sat}%`, ["--lig" as any]: `${t.lig}%`,
+              ["--d" as any]: `${t.delay}s`, ["--t" as any]: `${t.dur}s`,
+            } as React.CSSProperties}>
+              <div className="ld-ti" />
             </div>
           ))}
         </div>
-        <div className="landing-center">
-          <div className="landing-glass">
-            <div className="landing-badge">MOSAIC MODE</div>
-            <h1 className="landing-title">News Mosaic</h1>
-            <p className="landing-sub">
-              Enter a topic to build your mosaic.<br />
-              Fragments become something whole.
+        <div className="ld-center">
+          <div className="ld-card">
+            <div className="ld-icon">&#x1F9E9;</div>
+            <h1 className="ld-title">News Mosaic</h1>
+            <p className="ld-sub">
+              See the full picture. Enter a topic and we'll piece together<br />
+              the story from multiple sources and perspectives.
             </p>
-            <div className="landing-search">
-              <input
-                className="landing-input"
-                value={input}
+            <div className="ld-search">
+              <input className="ld-input" value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-                placeholder="e.g. artificial intelligence, climate change..."
-                autoFocus
-              />
-              <button className="landing-btn" onClick={handleSubmit}>
-                Build Mosaic
-              </button>
+                onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+                placeholder="Search any topic…"
+                autoFocus />
+              <button className="ld-btn" onClick={submit}>Search</button>
             </div>
-            <div className="landing-hint">
-              Press Enter or click Build Mosaic to start
-            </div>
+            <div className="ld-hint">Try "artificial intelligence", "climate change", or any topic</div>
           </div>
         </div>
-        <div className="landing-vignette" />
       </div>
     </>
   );
 }
 
-/* ── Main Page ── */
+/* ══════════════════════════════════════════
+   Cluster Card — interactive, expandable
+   ══════════════════════════════════════════ */
+function ClusterCard({
+  cluster, isExpanded, onToggle, onPickTile,
+}: {
+  cluster: Cluster; isExpanded: boolean;
+  onToggle: () => void; onPickTile: (tile: Tile, clusterName: string, clusterId: string) => void;
+}) {
+  const clusterName = cluster.summary?.cluster_title || `Cluster ${cluster.cluster_id}`;
+  const sentimentBreakdown = useMemo(() => {
+    let p = 0, n = 0, c = 0;
+    for (const t of cluster.items) {
+      const b = emotionBucket(t);
+      if (b === "positive") p++; else if (b === "critical") c++; else n++;
+    }
+    return { positive: p, neutral: n, critical: c };
+  }, [cluster.items]);
+
+  return (
+    <div style={{
+      borderRadius: 14, overflow: "hidden",
+      background: "rgba(255,255,255,0.72)",
+      border: isExpanded ? "1px solid rgba(107,92,231,0.2)" : "1px solid rgba(0,0,0,0.06)",
+      boxShadow: isExpanded ? "0 4px 20px rgba(107,92,231,0.08)" : "0 1px 3px rgba(0,0,0,0.04)",
+      transition: "all 200ms ease",
+    }}>
+      {/* Header — always visible, clickable */}
+      <div onClick={onToggle} style={{
+        padding: "12px 16px", cursor: "pointer",
+        display: "flex", alignItems: "center", gap: 12,
+        transition: "background 150ms ease",
+      }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 650, fontSize: 14, color: "#1d1d1f", lineHeight: 1.3 }}>
+            {clusterName}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+            <span style={{ fontSize: 12, color: "#8e8e93" }}>
+              {cluster.items.length} articles
+            </span>
+            {/* Mini sentiment dots */}
+            <div style={{ display: "flex", gap: 3 }}>
+              {sentimentBreakdown.positive > 0 && (
+                <div style={{ width: 6, height: 6, borderRadius: 3, background: SENTIMENT.positive.mid }}
+                  title={`${sentimentBreakdown.positive} positive`} />
+              )}
+              {sentimentBreakdown.neutral > 0 && (
+                <div style={{ width: 6, height: 6, borderRadius: 3, background: SENTIMENT.neutral.mid }}
+                  title={`${sentimentBreakdown.neutral} neutral`} />
+              )}
+              {sentimentBreakdown.critical > 0 && (
+                <div style={{ width: 6, height: 6, borderRadius: 3, background: SENTIMENT.critical.mid }}
+                  title={`${sentimentBreakdown.critical} critical`} />
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{
+          width: 24, height: 24, borderRadius: 6,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: isExpanded ? "rgba(107,92,231,0.08)" : "rgba(0,0,0,0.04)",
+          color: isExpanded ? "#6b5ce7" : "#8e8e93",
+          fontSize: 12, fontWeight: 700,
+          transition: "transform 200ms ease",
+          transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
+        }}>
+          ›
+        </div>
+      </div>
+
+      {/* Expanded content — article list */}
+      <div style={{
+        maxHeight: isExpanded ? 400 : 0,
+        opacity: isExpanded ? 1 : 0,
+        overflow: isExpanded ? "auto" : "hidden",
+        transition: "max-height 300ms cubic-bezier(.4,0,.2,1), opacity 200ms ease",
+      }}>
+        {/* Summary */}
+        {cluster.summary?.what_happened && (
+          <div style={{
+            padding: "0 16px 10px",
+            fontSize: 13, lineHeight: 1.5, color: "#6e6e73",
+          }}>
+            {cluster.summary.what_happened}
+          </div>
+        )}
+
+        {/* Article list */}
+        <div style={{ padding: "0 12px 12px" }}>
+          {cluster.items.slice(0, 8).map((tile, i) => {
+            const sentiment = emotionBucket(tile);
+            return (
+              <div key={tile.article?.id || i}
+                onClick={(e) => { e.stopPropagation(); onPickTile(tile, clusterName, cluster.cluster_id); }}
+                style={{
+                  padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+                  display: "flex", alignItems: "flex-start", gap: 8,
+                  transition: "background 120ms ease",
+                  marginBottom: 2,
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(0,0,0,0.03)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+              >
+                <div style={{
+                  width: 4, height: 4, borderRadius: 2, marginTop: 7, flexShrink: 0,
+                  background: SENTIMENT[sentiment].mid,
+                }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 13, fontWeight: 500, color: "#1d1d1f", lineHeight: 1.35,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {tileDisplayTitle(tile)}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#aeaeb2", marginTop: 2 }}>
+                    {tileDisplaySource(tile)}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {cluster.items.length > 8 && (
+            <div style={{ padding: "4px 10px", fontSize: 11, color: "#aeaeb2" }}>
+              +{cluster.items.length - 8} more articles
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   Article Detail Panel
+   ══════════════════════════════════════════ */
+function ArticleDetail({ tile, picked, onClose }: { tile: Tile; picked: any; onClose: () => void }) {
+  const sentiment = emotionBucket(tile);
+  const sentimentColor = SENTIMENT[sentiment];
+
+  return (
+    <div>
+      {/* Breadcrumb */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#8e8e93" }}>
+          <span>{picked.clusterName}</span>
+          <span style={{ opacity: 0.4 }}>·</span>
+          <span style={{
+            padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+            background: sentimentColor.light, color: sentimentColor.dark,
+          }}>
+            {sentiment}
+          </span>
+        </div>
+        <button onClick={onClose} style={{
+          width: 28, height: 28, borderRadius: 8,
+          border: "1px solid rgba(0,0,0,0.06)", background: "rgba(0,0,0,0.02)",
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 14, color: "#8e8e93", transition: "all 120ms ease",
+          padding: 0, lineHeight: 1,
+        }}>
+          ×
+        </button>
+      </div>
+
+      {/* Title */}
+      <h2 style={{
+        margin: "0 0 8px", fontSize: 20, fontWeight: 700,
+        letterSpacing: "-0.3px", lineHeight: 1.3, color: "#1d1d1f",
+      }}>
+        {tileDisplayTitle(tile)}
+      </h2>
+
+      {/* Meta */}
+      <div style={{ fontSize: 13, color: "#8e8e93", marginBottom: 16 }}>
+        {tileDisplaySource(tile)}
+        {tileDisplayTime(tile) ? ` · ${tileDisplayTime(tile)}` : ""}
+      </div>
+
+      {/* Takeaway */}
+      {tile.one_line_takeaway && (
+        <p style={{
+          margin: "0 0 16px", lineHeight: 1.6, fontSize: 14, color: "#3a3a3c",
+          padding: "12px 14px", borderRadius: 10,
+          background: "rgba(0,0,0,0.02)", borderLeft: `3px solid ${sentimentColor.mid}`,
+        }}>
+          {tile.one_line_takeaway}
+        </p>
+      )}
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {tile.tile_type && (
+          <span style={{
+            fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6,
+            background: "rgba(0,0,0,0.04)", color: "#6e6e73", textTransform: "uppercase",
+            letterSpacing: "0.5px",
+          }}>
+            {tile.tile_type}
+          </span>
+        )}
+        {tileDisplayUrl(tile) && (
+          <a href={tileDisplayUrl(tile)} target="_blank" rel="noreferrer" style={{
+            fontSize: 13, fontWeight: 600, color: "#6b5ce7",
+            textDecoration: "none", display: "flex", alignItems: "center", gap: 4,
+          }}>
+            Read full article <span style={{ fontSize: 11 }}>&#x2197;</span>
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   Main Page
+   ══════════════════════════════════════════ */
 export default function Mosaic() {
   const [page, setPage] = useState<"landing" | "mosaic">("landing");
   const [query, setQuery] = useState("");
+  const [lastQuery, setLastQuery] = useState("");
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [loading, setLoading] = useState(false);
   const [picked, setPicked] = useState<any | null>(null);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const run = useCallback(async (q: string) => {
     setLoading(true);
     setPicked(null);
+    setExpandedCluster(null);
     try {
       const data = await buildMosaic(q);
       setClusters(data || []);
@@ -673,13 +731,25 @@ export default function Mosaic() {
 
   const handleLandingSearch = useCallback((q: string) => {
     setQuery(q);
+    setLastQuery(q);
     setPage("mosaic");
     run(q);
   }, [run]);
 
   const handleTopbarSearch = useCallback(() => {
-    if (query.trim()) run(query.trim());
+    const q = query.trim();
+    if (q) {
+      setLastQuery(q);
+      run(q);
+    }
   }, [query, run]);
+
+  const handleBack = useCallback(() => {
+    setPage("landing");
+    setClusters([]);
+    setPicked(null);
+    // Don't clear query — it persists as placeholder reference
+  }, []);
 
   const sunData = useMemo(() => buildSunData(query, clusters), [query, clusters]);
   const stats = useMemo(() => computeSentimentStats(clusters), [clusters]);
@@ -691,10 +761,8 @@ export default function Mosaic() {
     return s;
   }, [query]);
 
-  // Find the cluster for the picked tile
-  const pickedCluster = picked?.clusterId
-    ? clusters.find((c) => c.cluster_id === picked.clusterId)
-    : null;
+  // Search input: show previous query grayed out when not focused and empty
+  const showGrayQuery = !searchFocused && query === lastQuery && query.length > 0;
 
   if (page === "landing") {
     return <LandingPage onSearch={handleLandingSearch} />;
@@ -702,156 +770,120 @@ export default function Mosaic() {
 
   return (
     <div className="layout">
-      <MosaicLoading loading={loading} label="Building mosaic…" seed={loadingSeed} />
+      <MosaicLoading loading={loading} seed={loadingSeed} />
 
+      {/* ── Top bar ── */}
       <div className="topbar">
-        <div className="brand" style={{ cursor: "pointer" }} onClick={() => setPage("landing")}>
-          <span className="logo" role="img" aria-label="mosaic">&#x1F9E9;</span>
-          <h1>News Mosaic</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button className="back-btn" onClick={handleBack} title="Back to home">
+            <span style={{ fontSize: 16, lineHeight: 1 }}>&#x2190;</span>
+            <span>Home</span>
+          </button>
+          <div className="brand" onClick={handleBack}>
+            <span className="logo">&#x1F9E9;</span>
+            <h1>News Mosaic</h1>
+          </div>
         </div>
 
-        <div className="search" style={{ maxWidth: 720, width: "100%" }}>
+        <div className="search">
           <input
+            ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleTopbarSearch(); }}
-            placeholder="Search topic..."
+            onFocus={() => { setSearchFocused(true); }}
+            onBlur={() => { setSearchFocused(false); }}
+            placeholder="Search another topic…"
+            style={{
+              color: showGrayQuery ? "#aeaeb2" : undefined,
+            }}
           />
-          <button onClick={handleTopbarSearch} disabled={loading}
-            style={{ fontSize: loading ? "18px" : "16px", fontWeight: loading ? 800 : 600 }}>
-            {loading ? "Building..." : "Build Mosaic"}
+          <button onClick={handleTopbarSearch} disabled={loading}>
+            {loading ? "Building…" : "Search"}
           </button>
         </div>
       </div>
 
+      {/* ── Content ── */}
       <div className="content">
         <div className="main" style={{ width: "100%" }}>
           {clusters.length > 0 ? (
             <div style={{
               display: "grid",
-              gridTemplateColumns: "minmax(580px, 660px) minmax(380px, 520px)",
+              gridTemplateColumns: "minmax(480px, 560px) minmax(360px, 480px)",
               justifyContent: "center",
-              gap: 24,
+              gap: 32,
               alignItems: "start",
+              maxWidth: 1100,
+              margin: "0 auto",
             }}>
-              {/* Left: Sunburst + legend */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+              {/* ── Left: Sunburst + legend ── */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
                 <Sunburst
-                  data={sunData}
-                  query={query}
-                  stats={stats}
-                  width={580}
-                  height={580}
+                  data={sunData} query={query} stats={stats}
+                  width={500} height={500}
                   onPick={(meta) => {
                     if (!meta) return;
-                    if (meta.kind === "tile") {
-                      setPicked(meta);
-                    } else if (meta.kind === "sentiment") {
-                      setPicked(null);
-                    }
+                    if (meta.kind === "tile") setPicked(meta);
+                    else setPicked(null);
                   }}
-                  hoveredKey={hoveredKey}
-                  onHover={setHoveredKey}
+                  hoveredKey={hoveredKey} onHover={setHoveredKey}
                 />
                 <SentimentLegend stats={stats} />
               </div>
 
-              {/* Right: detail panel */}
-              <div style={{ borderLeft: "1px solid #eee", paddingLeft: 20 }}>
+              {/* ── Right: Detail panel ── */}
+              <div style={{
+                position: "sticky", top: 80,
+              }}>
                 {pickedTile ? (
-                  <div>
-                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-                      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
-                        Cluster: <b>{picked.clusterName}</b> · Sentiment: <b style={{
-                          color: SENTIMENT_COLORS[picked.bucket as Sentiment]?.dark || "#555"
-                        }}>{picked.bucket}</b>
-                      </div>
-                      <button type="button" onClick={() => setPicked(null)} aria-label="Close details"
-                        style={{
-                          width: 28, height: 28, borderRadius: 999,
-                          border: "1px solid #e6e6e6", background: "#fff",
-                          cursor: "pointer", lineHeight: "26px", padding: 0, flexShrink: 0,
-                        }}>
-                        ×
-                      </button>
-                    </div>
-
-                    <h2 style={{ marginTop: 0 }}>{tileDisplayTitle(pickedTile)}</h2>
-
-                    <div style={{ opacity: 0.7, marginBottom: 8 }}>
-                      {tileDisplaySource(pickedTile)}{" "}
-                      {tileDisplayTime(pickedTile) ? `· ${tileDisplayTime(pickedTile)}` : ""}
-                    </div>
-
-                    {pickedTile.one_line_takeaway ? (
-                      <p style={{ lineHeight: 1.55 }}>{pickedTile.one_line_takeaway}</p>
-                    ) : null}
-
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "12px 0" }}>
-                      {pickedTile.tile_type ? (
-                        <span style={{ fontSize: 12, padding: "4px 8px", borderRadius: 999, background: "#f2f2f2" }}>
-                          {pickedTile.tile_type}
-                        </span>
-                      ) : null}
-                      {tileDisplayUrl(pickedTile) ? (
-                        <a href={tileDisplayUrl(pickedTile)} target="_blank" rel="noreferrer">
-                          Open article ↗
-                        </a>
-                      ) : null}
-                    </div>
+                  <div style={{
+                    padding: "20px 24px", borderRadius: 18,
+                    background: "rgba(255,255,255,0.78)",
+                    border: "1px solid rgba(0,0,0,0.06)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.06)",
+                    backdropFilter: "blur(12px)",
+                  }}>
+                    <ArticleDetail tile={pickedTile} picked={picked} onClose={() => setPicked(null)} />
                   </div>
                 ) : (
                   <div>
-                    {pickedCluster ? (
-                      <div>
-                        <h2 style={{ marginTop: 0 }}>
-                          {pickedCluster.summary?.cluster_title || `Cluster ${pickedCluster.cluster_id}`}
-                        </h2>
-                        {pickedCluster.summary?.what_happened ? (
-                          <p style={{ lineHeight: 1.55 }}>{pickedCluster.summary.what_happened}</p>
-                        ) : null}
+                    {/* Cluster cards — the main right-panel content */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{
+                        fontSize: 11, fontWeight: 600, color: "#aeaeb2",
+                        textTransform: "uppercase", letterSpacing: "0.8px",
+                        padding: "0 4px", marginBottom: 2,
+                      }}>
+                        Story Clusters · {clusters.length} found
                       </div>
-                    ) : (
-                      <div style={{ paddingTop: 40, textAlign: "center" }}>
-                        <div style={{ fontSize: 48, marginBottom: 16 }}>&#x1F9E9;</div>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: "#333", marginBottom: 8 }}>
-                          Explore the mosaic
-                        </div>
-                        <div style={{ fontSize: 14, color: "#888", lineHeight: 1.6 }}>
-                          Hover over tiles to preview.<br />
-                          Click any tile to read details.
-                        </div>
-
-                        {/* Cluster list */}
-                        <div style={{ marginTop: 28, textAlign: "left" }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#999", marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>
-                            Clusters found
-                          </div>
-                          {clusters.map((c) => (
-                            <div key={c.cluster_id} style={{
-                              padding: "10px 14px", borderRadius: 12,
-                              background: "#fafafa", border: "1px solid #eee",
-                              marginBottom: 8, cursor: "default",
-                            }}>
-                              <div style={{ fontWeight: 700, fontSize: 14 }}>
-                                {c.summary?.cluster_title || `Cluster ${c.cluster_id}`}
-                              </div>
-                              <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
-                                {c.items.length} articles
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                      <div style={{ fontSize: 12, color: "#8e8e93", padding: "0 4px", marginBottom: 6, lineHeight: 1.5 }}>
+                        Click a cluster to browse articles, or click tiles on the chart for details.
                       </div>
-                    )}
+                      {clusters.map((c) => (
+                        <ClusterCard key={c.cluster_id}
+                          cluster={c}
+                          isExpanded={expandedCluster === c.cluster_id}
+                          onToggle={() => setExpandedCluster(
+                            expandedCluster === c.cluster_id ? null : c.cluster_id
+                          )}
+                          onPickTile={(tile, clusterName, clusterId) => {
+                            setPicked({
+                              kind: "tile", tile, clusterName, clusterId,
+                              bucket: emotionBucket(tile),
+                            });
+                          }}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
             </div>
           ) : (
             <div className="empty">
-              <div className="emptyTitle">Enter with fragments. Leave with something whole.</div>
-              <div className="emptySub">Search a topic to build your mosaic.</div>
+              <div className="emptyTitle">Search a topic to build your mosaic</div>
+              <div className="emptySub">We'll piece together stories from multiple sources.</div>
             </div>
           )}
         </div>

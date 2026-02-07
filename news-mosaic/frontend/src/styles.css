@@ -1,40 +1,199 @@
-.layout { font-family: system-ui, -apple-system, sans-serif; height: 100vh; }
-.topbar { padding: 20px; border-bottom: 1px solid #eee; display:flex; justify-content: space-between; align-items: center; gap: 16px; }
-.brand { display:flex; align-items: center; gap: 10px; }
-.brand h1 { margin: 0; font-size: 38px; }
-.logo { font-size: 34px; }
+/* ═══════════════════════════════════════════
+   News Mosaic — Design System
+   Inspired by Apple HIG: clarity, deference, depth
+   ═══════════════════════════════════════════ */
 
-.search { display:flex; gap: 10px; align-items: center; }
-.search input { width: 360px; padding: 10px 12px; border-radius: 12px; border: 1px solid #ddd; }
-.search button { padding: 10px 14px; border-radius: 12px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", "Fira Code", monospace;
 
-.content { display:flex; height: calc(100vh - 86px); }
-.sidebar { width: 340px; padding: 12px; overflow: auto; border-right: 1px solid #eee; }
-.main { flex: 1; padding: 18px; overflow: auto; }
+  /* Mosaic-inspired palette — warm stone + jewel tones */
+  --bg: #f5f3f0;
+  --bg-subtle: #eae7e2;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-solid: #ffffff;
+  --border: rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.10);
 
-.clusterBtn { width: 100%; text-align: left; padding: 12px; border-radius: 14px; border: 1px solid transparent; background: #fafafa; margin-bottom: 10px; cursor: pointer; }
-.clusterBtn.active { background: #fff; border-color: #ddd; }
-.clusterTitle { font-weight: 700; margin-bottom: 6px; }
-.clusterMeta { opacity: 0.7; font-size: 12px; }
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-tertiary: #aeaeb2;
 
-.boardTitle { margin: 0 0 6px 0; font-size: 22px; }
-.boardDesc { margin: 0 0 16px 0; opacity: 0.85; }
+  --accent: #6b5ce7;
+  --accent-light: rgba(107, 92, 231, 0.08);
+  --accent-hover: #5a4bd6;
 
-.board { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.tile { display:block; text-decoration:none; color: inherit; padding: 12px; border-radius: 16px; border: 1px solid rgba(0,0,0,0.08); min-height: 110px; transition: transform 0.08s ease; }
-.tile:hover { transform: translateY(-2px); }
-.tileTitle { font-weight: 650; font-size: 14px; line-height: 1.25; }
-.tileMeta { margin-top: 10px; font-size: 12px; opacity: 0.75; }
+  --positive: #34c759;
+  --positive-bg: #e8f8ed;
+  --neutral-c: #8e8e93;
+  --neutral-bg: #f0efed;
+  --critical: #ff3b30;
+  --critical-bg: #fde8e7;
 
-.tile.fact { background: rgba(80,140,255,0.12); }
-.tile.analysis { background: rgba(160,110,255,0.12); }
-.tile.opinion { background: rgba(255,160,80,0.12); }
-.tile.unverified { background: rgba(160,160,160,0.12); }
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
 
-.story { display:grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
-.storyCol h3 { margin: 0 0 8px 0; }
-.storyCol ul { margin: 0; padding-left: 18px; }
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04);
+  --shadow-xl: 0 24px 60px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.04);
+}
 
-.empty { height: 100%; display:flex; flex-direction: column; justify-content:center; align-items:center; gap: 8px; opacity: 0.75; }
-.emptyTitle { font-size: 20px; font-weight: 650; }
-.emptySub { font-size: 14px; }
+/* ── Layout ── */
+.layout {
+  font-family: var(--font);
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Top bar ── */
+.topbar {
+  padding: 14px 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: opacity 150ms ease;
+  flex-shrink: 0;
+}
+.brand:hover { opacity: 0.7; }
+.brand h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--text-primary);
+}
+.logo { font-size: 22px; }
+
+/* Back button in topbar */
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 150ms ease;
+  backdrop-filter: blur(8px);
+  flex-shrink: 0;
+}
+.back-btn:hover {
+  background: var(--surface-solid);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Search (topbar) ── */
+.search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.search input {
+  width: 320px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-solid);
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+.search input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+.search input::placeholder {
+  color: var(--text-tertiary);
+}
+/* Previous query shown as gray text */
+.search input.has-prev-query {
+  color: var(--text-tertiary);
+}
+.search input.has-prev-query:focus {
+  color: var(--text-primary);
+}
+
+.search button {
+  padding: 9px 18px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms ease, transform 100ms ease;
+  white-space: nowrap;
+}
+.search button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.search button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.search button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Content area ── */
+.content {
+  display: flex;
+  height: calc(100vh - 56px);
+}
+.main {
+  flex: 1;
+  padding: 24px;
+  overflow: auto;
+}
+
+/* ── Empty state ── */
+.empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+.emptyTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+.emptySub {
+  font-size: 15px;
+  color: var(--text-secondary);
+}
