@@ -1,0 +1,127 @@
+
+.ml-wrap{
+  position:fixed; inset:0; z-index:9999;
+  /* 重要：让它真的“盖住”页面，并阻止重复点击 */
+  pointer-events:auto;
+  opacity:0; transition:opacity 220ms ease;
+  background:radial-gradient(1100px 680px at 10% 5%, #ffffff 0%, #f4f6fb 35%, #eef1f7 70%, #e8ebf2 100%);
+}
+.ml-wrap.is-on{opacity:1}
+.ml-grid{
+  position:absolute; inset:0;
+  display:grid;
+  grid-template-columns:repeat(var(--cols),1fr);
+  grid-template-rows:repeat(var(--rows),1fr);
+  gap:10px; padding:18px;
+  /* 3D 舞台 */
+  perspective: 900px;
+  transform-style: preserve-3d;
+}
+
+/* tile 定位 */
+.ml-tile{
+  grid-column:calc(var(--x) + 1)/span var(--w);
+  grid-row:calc(var(--y) + 1)/span var(--h);
+  border-radius:16px; overflow:hidden;
+  box-shadow:0 10px 30px rgba(20,24,35,.10),0 2px 8px rgba(20,24,35,.08);
+  transform: translateZ(0);
+  transform-style: preserve-3d;
+}
+
+/* 鱼鳞：用 inner 做“翻面 + 呼吸 + 漂浮” */
+.ml-inner{
+  width:100%; height:100%;
+  background:
+    radial-gradient(420px 240px at 25% 20%, rgba(255,255,255,.55), rgba(255,255,255,0) 55%),
+    linear-gradient(135deg,
+      hsla(var(--hue),var(--sat),calc(var(--lig) + 14%),.92),
+      hsla(calc(var(--hue) + 22),calc(var(--sat) - 10%),calc(var(--lig) - 4%),.92)
+    );
+  border:1px solid rgba(255,255,255,.55);
+  backdrop-filter: blur(10px);
+  transform-style: preserve-3d;
+
+  /* 核心：两个动画叠加（pulse + flip） */
+  animation:
+    mlPulse var(--t) ease-in-out calc(var(--d) + var(--ph)) infinite,
+    mlFlip  calc(var(--t) + 0.4s) ease-in-out calc(var(--d) + var(--ph)) infinite;
+}
+
+/* 高光层：像鳞片反光 */
+.ml-inner::after{
+  content:"";
+  position:absolute; inset:-40%;
+  background: linear-gradient(135deg,
+    rgba(255,255,255,0) 35%,
+    rgba(255,255,255,.60) 50%,
+    rgba(255,255,255,0) 65%
+  );
+  opacity: .22;
+  transform: translateX(-35%) translateY(-35%);
+  animation: mlSheen 1.7s ease-in-out calc(var(--d) + var(--ph)) infinite;
+  pointer-events:none;
+}
+
+/* 呼吸 + 微浮动 */
+@keyframes mlPulse{
+  0%   { transform: translateY(0) scale(1); opacity:.88; filter: blur(0) saturate(1.05); }
+  35%  { transform: translateY(-4px) scale(1.01); opacity:1;   filter: blur(0) saturate(1.15); }
+  70%  { transform: translateY(3px) scale(.995); opacity:.92;  filter: blur(.2px) saturate(1.05); }
+  100% { transform: translateY(0) scale(1); opacity:.88; filter: blur(0) saturate(1.05); }
+}
+
+/* 鱼鳞翻转：根据 --axis 选择 rotateX 或 rotateY
+   CSS 没法 if/else，但可以用两套 keyframes，靠属性选择： */
+.ml-tile[style*="--axis: y"] .ml-inner{ animation-name: mlPulse, mlFlipY; }
+.ml-tile[style*="--axis: x"] .ml-inner{ animation-name: mlPulse, mlFlipX; }
+
+@keyframes mlFlipY{
+  0%   { transform: rotateY(0deg) translateZ(0px); }
+  30%  { transform: rotateY(var(--amp)) translateZ(10px); }
+  60%  { transform: rotateY(calc(var(--amp) * -0.75)) translateZ(6px); }
+  100% { transform: rotateY(0deg) translateZ(0px); }
+}
+@keyframes mlFlipX{
+  0%   { transform: rotateX(0deg) translateZ(0px); }
+  30%  { transform: rotateX(var(--amp)) translateZ(10px); }
+  60%  { transform: rotateX(calc(var(--amp) * -0.75)) translateZ(6px); }
+  100% { transform: rotateX(0deg) translateZ(0px); }
+}
+
+/* 鳞片反光扫过 */
+@keyframes mlSheen{
+  0%   { transform: translateX(-35%) translateY(-35%); }
+  50%  { transform: translateX(10%) translateY(10%); }
+  100% { transform: translateX(45%) translateY(45%); }
+}
+
+/* 中央 HUD */
+.ml-center{
+  position:absolute; left:50%; top:46%;
+  transform:translate(-50%,-50%);
+  text-align:center;
+}
+.ml-pill{
+  display:inline-flex; align-items:center; gap:10px;
+  padding:12px 14px; border-radius:999px;
+  background:rgba(255,255,255,.72);
+  border:1px solid rgba(18,20,28,.10);
+  box-shadow:0 18px 50px rgba(20,24,35,.12);
+  backdrop-filter: blur(12px);
+  font-weight:900;
+  letter-spacing:.02em;
+  color:rgba(18,20,28,.72);
+}
+.ml-dot{
+  width:10px; height:10px; border-radius:999px;
+  background:linear-gradient(135deg,#ff4fd8,#7c5cff);
+  box-shadow:0 6px 18px rgba(124,92,255,.25);
+  animation: mlDot .9s ease-in-out infinite;
+}
+@keyframes mlDot{0%,100%{transform:scale(.9);opacity:.7}50%{transform:scale(1.15);opacity:1}}
+.ml-sub{margin-top:10px;font-size:12px;color:rgba(18,20,28,.55)}
+.ml-vignette{
+  position:absolute; inset:-40px; pointer-events:none;
+  background:radial-gradient(1200px 650px at 50% 40%, rgba(0,0,0,0) 58%, rgba(0,0,0,.10) 100%);
+}
+;

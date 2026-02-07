@@ -1,145 +1,290 @@
-import { useEffect, useMemo, useRef } from "react";
-import * as d3 from "d3";
+import React, { useMemo, useState } from "react"
+import { motion, AnimatePresence } from "framer-motion"
+import "./mosaicStart.css"
 
-type Tile = any; // 你们现在用 any 也行，后面再补类型
-
-type SunNode =
-  | { name: string; children: SunNode[] }
-  | { name: string; value: number; meta: Tile };
-
-function bucketLabelFromTile(tile: Tile): "neutral" | "opinion" | "unverified" {
-  const t = String(tile?.tile_type || "").toUpperCase();
-  if (t === "FACT" || t === "ANALYSIS") return "neutral";
-  if (t === "OPINION") return "opinion";
-  return "unverified";
+type Props = {
+  title?: string
+  subtitle?: string
+  ctaText?: string
+  onStart?: () => void
+  // 你也可以在外面传颜色种子，用来“base on cluster”
+  seed?: number
 }
 
-// “不排序”：我们用稳定随机（同一 query + 同一 cluster 标题 => 顺序稳定，但不是按热度/时间）
-function stableShuffle<T>(arr: T[], seedStr: string): T[] {
-  // 简易 hash -> seed
-  let seed = 0;
-  for (let i = 0; i < seedStr.length; i++) seed = (seed * 31 + seedStr.charCodeAt(i)) >>> 0;
+type Tile = {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  r: number
+  delay: number
+  dur: number
+  hue: number
+  sat: number
+  lig: number
+}
 
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    seed = (1664525 * seed + 1013904223) >>> 0;
-    const j = seed % (i + 1);
-    [a[i], a[j]] = [a[j], a[i]];
+function mulberry32(seed: number) {
+  let t = seed >>> 0
+  return function () {
+    t += 0x6d2b79f5
+    let x = Math.imul(t ^ (t >>> 15), 1 | t)
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x)
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296
   }
-  return a;
 }
 
-export default function Sunburst({
-  data,
-  width = 720,
-  height = 520,
-  onPickLeaf,
-}: {
-  data: any; // Mosaic.tsx 传进来的 clusters + query
-  width?: number;
-  height?: number;
-  onPickLeaf: (tile: Tile) => void;
-}) {
-  const ref = useRef<SVGSVGElement | null>(null);
+function clamp(n: number, a: number, b: number) {
+  return Math.max(a, Math.min(b, n))
+}
 
-  const root = useMemo(() => {
-    const { query, clusters } = data as { query: string; clusters: any[] };
+export default function MosaicStartScreen({
+  title = "News Mosaic",
+  subtitle = "A mosaic-style briefing board. Tap start to enter.",
+  ctaText = "Start",
+  onStart,
+  seed = 2026,
+}: Props) {
+  const [leaving, setLeaving] = useState(false)
 
-    const children: SunNode[] = (clusters || []).map((c) => {
-      const clusterName = c?.summary?.cluster_title ? String(c.summary.cluster_title) : `Cluster ${c.cluster_id}`;
+  const tiles = useMemo(() => {
+    // 可调：网格大小
+    const cols = 14
+    const rows = 9
 
-      // 每个 cluster 里面 tiles “不排序”：稳定 shuffle
-      const tiles = stableShuffle(c.items || [], `${query}::${clusterName}`);
+    const rand = mulberry32(seed)
+    const list: Tile[] = []
 
-      const buckets: Record<string, Tile[]> = { neutral: [], opinion: [], unverified: [] };
-      for (const tile of tiles) buckets[bucketLabelFromTile(tile)].push(tile);
+    // 做一些 1x1 / 2x1 / 1x2 / 2x2 混合马赛克块
+    const used = new Set<string>()
+    const key = (c: number, r: number) => `${c},${r}`
 
-      const bucketNodes: SunNode[] = Object.entries(buckets)
-        .filter(([, v]) => v.length > 0)
-        .map(([k, v]) => ({
-          name: k,
-          children: v.map((tile) => ({
-            name: tile?.article?.title || "Untitled",
-            value: 1,
-            meta: tile,
-          })),
-        })) as any;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (used.has(key(c, r))) continue
 
-      return { name: clusterName, children: bucketNodes } as any;
-    });
+        const pick = rand()
+        let w = 1
+        let h = 1
 
-    return d3.hierarchy({ name: query || "Topic", children } as any).sum((d: any) => d.value || 0);
-  }, [data]);
+        if (pick > 0.86) {
+          w = 2
+          h = 2
+        } else if (pick > 0.72) {
+          w = 2
+          h = 1
+        } else if (pick > 0.58) {
+          w = 1
+          h = 2
+        }
 
-  useEffect(() => {
-    if (!ref.current) return;
+        // 边界修正
+        if (c + w > cols) w = 1
+        if (r + h > rows) h = 1
 
-    const svg = d3.select(ref.current);
-    svg.selectAll("*").remove();
+        // 标记占用
+        for (let rr = r; rr < r + h; rr++) {
+          for (let cc = c; cc < c + w; cc++) {
+            used.add(key(cc, rr))
+          }
+        }
 
-    const radius = Math.min(width, height) / 2 - 12;
+        // “彩色马赛克”：HSL 随机，但不要太脏
+        const hue = Math.floor(rand() * 360)
+        const sat = clamp(55 + rand() * 30, 45, 85)
+        const lig = clamp(35 + rand() * 25, 28, 62)
 
-    const partition = d3.partition<any>().size([2 * Math.PI, radius]);
-    const r = partition(root);
-
-    // color: cluster-level base hue, bucket-level adjust
-    const topNames = r.children?.map((d) => d.data.name) || [];
-    const color = d3.scaleOrdinal<string, string>().domain(topNames).range(d3.schemeTableau10 as any);
-
-    const arc = d3
-      .arc<any>()
-      .startAngle((d) => d.x0)
-      .endAngle((d) => d.x1)
-      .innerRadius((d) => d.y0)
-      .outerRadius((d) => d.y1);
-
-    const g = svg
-      .attr("viewBox", `${-width / 2} ${-height / 2} ${width} ${height}`)
-      .append("g");
-
-    const nodes = r.descendants().filter((d) => d.depth > 0); // skip center root
-
-    const paths = g
-      .selectAll("path")
-      .data(nodes)
-      .enter()
-      .append("path")
-      .attr("d", arc as any)
-      .attr("fill", (d) => {
-        // depth1=cluster, depth2=bucket
-        const base = d.ancestors().find((x) => x.depth === 1)?.data?.name;
-        const c = color(base || "x");
-        const name = String(d.data.name);
-
-        // 简单区分 bucket：neutral/opinion/unverified
-        if (name === "neutral") return d3.color(c)!.brighter(0.6).formatHex();
-        if (name === "opinion") return d3.color(c)!.darker(0.2).formatHex();
-        if (name === "unverified") return "#c9c9c9";
-        return c;
-      })
-      .attr("stroke", "white")
-      .attr("stroke-width", 1)
-      .style("cursor", (d) => (d.children ? "default" : "pointer"))
-      .on("click", (_, d) => {
-        if (!d.children && (d.data as any).meta) onPickLeaf((d.data as any).meta);
-      });
-
-    paths.append("title").text((d) => {
-      const leaf = (d.data as any).meta;
-      if (leaf?.article?.source) {
-        return `${leaf.article.title}\n${leaf.article.source} • ${leaf.article.published_at || ""}\n${leaf.one_line_takeaway || ""}`;
+        list.push({
+          id: `${c}-${r}`,
+          x: c,
+          y: r,
+          w,
+          h,
+          r: Math.floor(rand() * 12) + 10,
+          delay: rand() * 0.6,
+          dur: 2.6 + rand() * 2.6,
+          hue,
+          sat,
+          lig,
+        })
       }
-      return d.data.name;
-    });
+    }
 
-    // 中心标题
-    g.append("text")
-      .attr("text-anchor", "middle")
-      .attr("dy", "0.35em")
-      .style("font-size", "14px")
-      .style("font-weight", 600)
-      .text((root.data as any).name || "Topic");
-  }, [root, width, height, onPickLeaf]);
+    return { cols, rows, list }
+  }, [seed])
 
-  return <svg ref={ref} style={{ width: "100%", maxWidth: width, height }} />;
+  const handleStart = () => {
+    if (leaving) return
+    setLeaving(true)
+  }
+
+  return (
+    <div className="ms-wrap">
+      <AnimatePresence>
+        {!leaving && (
+          <motion.div
+            className="ms-stage"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {/* 马赛克背景 */}
+            <div
+              className="ms-grid"
+              style={
+                {
+                  ["--cols" as any]: tiles.cols,
+                  ["--rows" as any]: tiles.rows,
+                } as React.CSSProperties
+              }
+            >
+              {tiles.list.map((t) => (
+                <motion.div
+                  key={t.id}
+                  className="ms-tile"
+                  style={
+                    {
+                      ["--x" as any]: t.x,
+                      ["--y" as any]: t.y,
+                      ["--w" as any]: t.w,
+                      ["--h" as any]: t.h,
+                      ["--r" as any]: `${t.r}px`,
+                      ["--hue" as any]: t.hue,
+                      ["--sat" as any]: `${t.sat}%`,
+                      ["--lig" as any]: `${t.lig}%`,
+                    } as React.CSSProperties
+                  }
+                  initial={{ opacity: 0, scale: 0.98, y: 6 }}
+                  animate={{
+                    opacity: 1,
+                    scale: 1,
+                    y: 0,
+                  }}
+                  transition={{
+                    delay: 0.15 + t.delay,
+                    duration: 0.55,
+                    ease: "easeOut",
+                  }}
+                >
+                  {/* 漂浮 + 微闪 */}
+                  <motion.div
+                    className="ms-tileInner"
+                    animate={{
+                      y: [0, -4, 0, 3, 0],
+                      opacity: [0.92, 1, 0.95, 1, 0.92],
+                    }}
+                    transition={{
+                      delay: t.delay,
+                      duration: t.dur,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                    }}
+                  />
+                </motion.div>
+              ))}
+            </div>
+
+            {/* 玻璃态内容 */}
+            <motion.div
+              className="ms-center"
+              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ delay: 0.25, duration: 0.55, ease: "easeOut" }}
+            >
+              <div className="ms-badge">MOSAIC MODE</div>
+              <h1 className="ms-title">{title}</h1>
+              <p className="ms-subtitle">{subtitle}</p>
+
+              <div className="ms-actions">
+                <button className="ms-btn" onClick={handleStart}>
+                  <span className="ms-btnDot" />
+                  {ctaText}
+                </button>
+                <div className="ms-hint">Tip: 你可以把 seed 设成 clusterId，让配色跟着主题走。</div>
+              </div>
+            </motion.div>
+
+            {/* 边角轻微暗角 */}
+            <div className="ms-vignette" />
+          </motion.div>
+        )}
+
+        {/* 退出动画：马赛克聚拢/散开 */}
+        {leaving && (
+          <motion.div
+            className="ms-leave"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onAnimationComplete={() => {
+              // 给一点点时间感
+              onStart?.()
+            }}
+          >
+            <div
+              className="ms-grid ms-gridLeave"
+              style={
+                {
+                  ["--cols" as any]: tiles.cols,
+                  ["--rows" as any]: tiles.rows,
+                } as React.CSSProperties
+              }
+            >
+              {tiles.list.map((t) => {
+                // 向中心聚拢：根据距离中心决定延迟
+                const cx = (tiles.cols - 1) / 2
+                const cy = (tiles.rows - 1) / 2
+                const dx = t.x - cx
+                const dy = t.y - cy
+                const dist = Math.sqrt(dx * dx + dy * dy)
+                const delay = dist * 0.03
+
+                return (
+                  <motion.div
+                    key={`leave-${t.id}`}
+                    className="ms-tile"
+                    style={
+                      {
+                        ["--x" as any]: t.x,
+                        ["--y" as any]: t.y,
+                        ["--w" as any]: t.w,
+                        ["--h" as any]: t.h,
+                        ["--r" as any]: `${t.r}px`,
+                        ["--hue" as any]: t.hue,
+                        ["--sat" as any]: `${t.sat}%`,
+                        ["--lig" as any]: `${t.lig}%`,
+                      } as React.CSSProperties
+                    }
+                    initial={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                    animate={{
+                      opacity: 0,
+                      scale: 0.65,
+                      filter: "blur(6px)",
+                    }}
+                    transition={{
+                      delay,
+                      duration: 0.55,
+                      ease: "easeIn",
+                    }}
+                  >
+                    <div className="ms-tileInner" />
+                  </motion.div>
+                )
+              })}
+            </div>
+
+            <motion.div
+              className="ms-leaveText"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.18 }}
+            >
+              entering…
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
 }
