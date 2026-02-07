@@ -22,6 +22,9 @@ class Tile(BaseModel):
     topic_tags: List[str] = []
     one_line_takeaway: str = ""
     confidence: float = 0.5
+    valence: float = 0.0
+    intensity: float = 0.0
+    intensity_level: str = "CALM"
 
 class ClusterSummary(BaseModel):
     cluster_title: str
