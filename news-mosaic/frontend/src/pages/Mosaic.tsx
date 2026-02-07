@@ -2,6 +2,7 @@ import "../styles.css";
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import * as d3 from "d3";
 import { buildMosaicLite, fetchClusterSummary } from "../api";
+import logoPng from "../assets/logo.png"
 
 /* ══════════════════════════════════════════
    Types
@@ -477,7 +478,7 @@ function LandingPage({ onSearch }: { onSearch: (q: string) => void }) {
         </div>
         <div className="ld-center">
           <div className="ld-card">
-            <div className="ld-icon">&#x1F9E9;</div>
+            <img className="ld-icon" src={logoPng} alt="News Mosaic logo" />
             <h1 className="ld-title">News Mosaic</h1>
             <p className="ld-sub">
               See the full picture. Enter a topic and we'll piece together<br />
