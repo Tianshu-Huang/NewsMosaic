@@ -1,134 +1,337 @@
 import "./mosaic-flower.css";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import * as d3 from "d3";
 import { buildMosaic } from "../api";
-import MosaicBoard from "../components/MosaicBoard";
 
-export function RadialRing({
-  title,
-  items,
+type Tile = {
+  title?: string; // optional fallback
+  url?: string;
+  source?: string;
+  tone?: string; // optional (positive/neutral/critical or similar)
+  meta?: string;
+  article?: {
+    id?: string;
+    title?: string;
+    url?: string;
+    source?: string;
+    published_at?: string;
+  };
+  one_line_takeaway?: string;
+  tile_type?: string; // FACT / ANALYSIS / OPINION / ...
+  [k: string]: any;
+};
+
+type Cluster = {
+  cluster_id: string;
+  summary?: any;
+  items: Tile[];
+};
+
+type SunNode =
+  | { name: string; children: SunNode[] }
+  | { name: string; value: number; meta: any };
+
+function normalizeTone(raw: string): "positive" | "neutral" | "critical" {
+  const t = (raw || "").toLowerCase();
+  if (["positive", "pro", "support", "favorable"].some((k) => t.includes(k))) return "positive";
+  if (["negative", "critical", "con", "against", "risk", "concern"].some((k) => t.includes(k))) return "critical";
+  return "neutral";
+}
+
+// stable shuffle so we avoid implicit ranking but still keep UI consistent per query
+function stableShuffle<T>(arr: T[], seedStr: string): T[] {
+  let seed = 0;
+  for (let i = 0; i < seedStr.length; i++) seed = (seed * 31 + seedStr.charCodeAt(i)) >>> 0;
+
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    seed = (1664525 * seed + 1013904223) >>> 0;
+    const j = seed % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function tileDisplayTitle(tile: Tile): string {
+  return tile.article?.title || tile.title || "Untitled";
+}
+function tileDisplayUrl(tile: Tile): string | undefined {
+  return tile.article?.url || tile.url;
+}
+function tileDisplaySource(tile: Tile): string {
+  return tile.article?.source || tile.source || "Unknown";
+}
+function tileDisplayTime(tile: Tile): string {
+  const t = tile.article?.published_at;
+  if (!t) return "";
+  try {
+    return new Date(t).toLocaleString();
+  } catch {
+    return String(t);
+  }
+}
+
+// Prefer explicit tone if you have it; otherwise try to infer from meta/one_line_takeaway
+function tileTone(tile: Tile): "positive" | "neutral" | "critical" {
+  const guess = `${tile.tone || ""} ${tile.meta || ""} ${tile.one_line_takeaway || ""}`;
+  return normalizeTone(guess);
+}
+
+function buildSunData(query: string, clusters: Cluster[]): SunNode {
+  return {
+    name: query || "Topic",
+    children: (clusters || []).map((c) => {
+      const clusterName = c.summary?.cluster_title ? String(c.summary.cluster_title) : `Cluster ${c.cluster_id}`;
+
+      const tiles = stableShuffle(c.items || [], `${query}::${clusterName}`);
+      const buckets: Record<"positive" | "neutral" | "critical", Tile[]> = {
+        positive: [],
+        neutral: [],
+        critical: [],
+      };
+
+      for (const tile of tiles) {
+        buckets[tileTone(tile)].push(tile);
+      }
+
+      return {
+        name: clusterName,
+        children: (["positive", "neutral", "critical"] as const)
+          .filter((k) => buckets[k].length > 0)
+          .map((k) => ({
+            name: k,
+            children: buckets[k].map((tile) => ({
+              name: tileDisplayTitle(tile),
+              value: 1,
+              meta: { tile, clusterId: c.cluster_id, clusterName, bucket: k },
+            })),
+          })),
+      };
+    }),
+  };
+}
+
+/**
+ * Minimal inline Sunburst (no extra file).
+ * Click a leaf -> calls onPick(meta)
+ */
+function Sunburst({
+  data,
+  width = 740,
+  height = 520,
   onPick,
 }: {
-  title: string;
-  items: Array<{ title: string; meta?: string; url?: string }>;
-  onPick: (it: { title: string; meta?: string; url?: string }) => void;
+  data: SunNode;
+  width?: number;
+  height?: number;
+  onPick: (meta: any) => void;
 }) {
-  const palette = [
-    "linear-gradient(135deg, rgba(120,190,255,0.75), rgba(255,255,255,0.35))",
-    "linear-gradient(135deg, rgba(255,140,180,0.72), rgba(255,255,255,0.35))",
-    "linear-gradient(135deg, rgba(255,200,90,0.75), rgba(255,255,255,0.35))",
-    "linear-gradient(135deg, rgba(120,230,170,0.70), rgba(255,255,255,0.35))",
-    "linear-gradient(135deg, rgba(170,160,255,0.70), rgba(255,255,255,0.35))",
-    "linear-gradient(135deg, rgba(255,155,95,0.72), rgba(255,255,255,0.35))",
-    "linear-gradient(135deg, rgba(90,220,220,0.70), rgba(255,255,255,0.35))",
-    "linear-gradient(135deg, rgba(210,120,255,0.70), rgba(255,255,255,0.35))",
-  ];
+  const svg = useMemo(() => {
+    const w = width;
+    const h = height;
+    const radius = Math.min(w, h) / 2 - 14;
 
-  const petals = items.slice(0, 8);
-  const step = 360 / Math.max(1, petals.length);
+    const root = d3
+      .hierarchy<any>(data as any)
+      .sum((d) => d.value || 0)
+      .sort(() => 0); // prevent implicit ordering
+
+    const partition = d3.partition<any>().size([2 * Math.PI, radius]);
+    partition(root);
+
+    const arc = d3
+      .arc<any>()
+      .startAngle((d) => d.x0)
+      .endAngle((d) => d.x1)
+      .innerRadius((d) => d.y0)
+      .outerRadius((d) => d.y1);
+
+    const clusters = root.children?.map((d) => String(d.data.name)) || [];
+    const color = d3.scaleOrdinal<string, string>().domain(clusters).range(d3.schemeTableau10 as any);
+
+    function fillFor(d: any) {
+      const cluster = d.ancestors().find((x: any) => x.depth === 1)?.data?.name;
+      const base = color(String(cluster || "x"));
+      const name = String(d.data.name);
+
+      // depth2 buckets
+      if (name === "positive") return d3.color(base)!.brighter(0.8).formatHex();
+      if (name === "neutral") return d3.color(base)!.brighter(0.3).formatHex();
+      if (name === "critical") return d3.color(base)!.darker(0.3).formatHex();
+      return base;
+    }
+
+    const nodes = root.descendants().filter((d) => d.depth > 0);
+
+    // build paths as plain data to render with JSX
+    return {
+      viewBox: `${-w / 2} ${-h / 2} ${w} ${h}`,
+      nodes: nodes.map((d) => ({
+        key: d.data.name + "|" + d.depth + "|" + d.x0 + "|" + d.y0,
+        d,
+        path: arc(d) || "",
+        fill: d.children ? fillFor(d) : fillFor(d),
+        clickable: !d.children && !!d.data?.meta,
+        title:
+          !d.children && d.data?.meta?.tile
+            ? `${tileDisplayTitle(d.data.meta.tile)}\n${tileDisplaySource(d.data.meta.tile)} • ${tileDisplayTime(
+                d.data.meta.tile
+              )}\n${d.data.meta.tile.one_line_takeaway || ""}`
+            : String(d.data.name),
+      })),
+      centerText: String((data as any).name || "Topic"),
+    };
+  }, [data, width, height]);
 
   return (
-    <div className="nm-radial">
-      <div className="nm-radial-center">
-        <div>
-          {title}
-          <span className="sub">Pick a petal</span>
-        </div>
-      </div>
+    <svg viewBox={svg.viewBox} style={{ width: "100%", maxWidth: width, height }}>
+      <g>
+        {svg.nodes.map((n) => (
+          <path
+            key={n.key}
+            d={n.path}
+            fill={n.fill}
+            stroke="white"
+            strokeWidth={1}
+            style={{ cursor: n.clickable ? "pointer" : "default" }}
+            onClick={() => {
+              if (n.clickable) onPick(n.d.data.meta);
+            }}
+          >
+            <title>{n.title}</title>
+          </path>
+        ))}
 
-      <div className="nm-petals">
-        {petals.map((it, i) => {
-          const ang = `${i * step}deg`;
-          return (
-            <button
-              key={i}
-              className="nm-petal"
-              style={{
-                ["--ang" as any]: ang,
-                ["--delay" as any]: `${i * 35}ms`,
-                ["--petal-bg" as any]: palette[i % palette.length],
-              }}
-              onClick={() => onPick(it)}
-              type="button"
-              title={it.title}
-            >
-              <div className="nm-petal-inner">
-                <span className="nm-petal-dot" />
-                <div className="nm-petal-title">{it.title}</div>
-                <div className="nm-petal-meta">{it.meta ?? ""}</div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
+        <text textAnchor="middle" dy="0.35em" style={{ fontSize: 14, fontWeight: 700 }}>
+          {svg.centerText}
+        </text>
+        <text textAnchor="middle" dy="1.8em" style={{ fontSize: 12, opacity: 0.7 }}>
+          click a slice
+        </text>
+      </g>
+    </svg>
   );
 }
 
 export default function Mosaic() {
   const [query, setQuery] = useState("OpenAI");
-  const [clusters, setClusters] = useState<any[]>([]);
-  const [selectedId, setSelectedId] = useState<string>("");
+  const [clusters, setClusters] = useState<Cluster[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // clicked leaf info
+  const [picked, setPicked] = useState<any | null>(null);
 
   async function run() {
     setLoading(true);
     try {
       const data = await buildMosaic(query);
-      setClusters(data);
-      setSelectedId(data?.[0]?.cluster_id ?? "");
+      setClusters(data || []);
+      setPicked(null);
     } finally {
       setLoading(false);
     }
   }
 
-  const selected = clusters.find((c) => c.cluster_id === selectedId);
+  const sunData = useMemo(() => buildSunData(query, clusters), [query, clusters]);
+
+  const pickedTile: Tile | null = picked?.tile || null;
 
   return (
-  <div className="layout">
-    <div className="topbar">
-      <div className="brand">
-        <span className="logo">🧩</span>
-        <h1>News Mosaic</h1>
-      </div>
+    <div className="layout">
+      <div className="topbar">
+        <div className="brand">
+          <span className="logo">🧩</span>
+          <h1>News Mosaic</h1>
+        </div>
 
-      <div className="search">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search topic..."
-        />
-        <button onClick={run} disabled={loading}>
-          {loading ? "Building..." : "Build Mosaic"}
-        </button>
-      </div>
-    </div>
-
-    <div className="content">
-      <div className="sidebar">
-        {clusters.map((c) => (
-          <button
-            key={c.cluster_id}
-            className={"clusterBtn " + (c.cluster_id === selectedId ? "active" : "")}
-            onClick={() => setSelectedId(c.cluster_id)}
-            type="button"
-          >
-            <div className="clusterTitle">{c.summary?.cluster_title ?? "Untitled"}</div>
-            <div className="clusterMeta">{c.items?.length ?? 0} tiles</div>
+        <div className="search">
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search topic..." />
+          <button onClick={run} disabled={loading}>
+            {loading ? "Building..." : "Build Mosaic"}
           </button>
-        ))}
+        </div>
       </div>
 
-      <div className="main">
-        {selected ? (
-          <MosaicBoard cluster={selected} />
-        ) : (
-          <div className="empty">
-            <div className="emptyTitle">Enter with fragments. Leave with something whole.</div>
-            <div className="emptySub">Search a topic to build your mosaic.</div>
-          </div>
-        )}
+      <div className="content">
+        {/* No sidebar (avoid any implied ranking / ordering) */}
+        <div className="main" style={{ width: "100%" }}>
+          {clusters.length > 0 ? (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 420px",
+                gap: 16,
+                alignItems: "start",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                <Sunburst data={sunData} onPick={(meta) => setPicked(meta)} />
+              </div>
+
+              <div style={{ borderLeft: "1px solid #eee", paddingLeft: 16 }}>
+                {!pickedTile ? (
+                  <div className="empty">
+                    <div className="emptyTitle">Click a slice to read a different angle.</div>
+                    <div className="emptySub">No ranking. Explore the mosaic.</div>
+                    <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7, lineHeight: 1.6 }}>
+                      Buckets: <b>positive</b> / <b>neutral</b> / <b>critical</b> (based on tile.tone/meta/takeaway).
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 10 }}>
+                      Cluster: <b>{picked.clusterName}</b> • Bucket: <b>{picked.bucket}</b>
+                    </div>
+
+                    <h2 style={{ marginTop: 0 }}>{tileDisplayTitle(pickedTile)}</h2>
+
+                    <div style={{ opacity: 0.7, marginBottom: 8 }}>
+                      {tileDisplaySource(pickedTile)} {tileDisplayTime(pickedTile) ? `• ${tileDisplayTime(pickedTile)}` : ""}
+                    </div>
+
+                    {pickedTile.one_line_takeaway ? <p style={{ lineHeight: 1.55 }}>{pickedTile.one_line_takeaway}</p> : null}
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "12px 0" }}>
+                      {pickedTile.tile_type ? (
+                        <span style={{ fontSize: 12, padding: "4px 8px", borderRadius: 999, background: "#f2f2f2" }}>
+                          {pickedTile.tile_type}
+                        </span>
+                      ) : null}
+
+                      <span style={{ fontSize: 12, padding: "4px 8px", borderRadius: 999, background: "#f2f2f2" }}>
+                        tone: {tileTone(pickedTile)}
+                      </span>
+
+                      {tileDisplayUrl(pickedTile) ? (
+                        <a href={tileDisplayUrl(pickedTile)} target="_blank" rel="noreferrer">
+                          Open article ↗
+                        </a>
+                      ) : null}
+                    </div>
+
+                    <button type="button" onClick={() => setPicked(null)}>
+                      Clear
+                    </button>
+
+                    {/* optional: raw debug */}
+                    <details style={{ marginTop: 12 }}>
+                      <summary style={{ cursor: "pointer", opacity: 0.75 }}>debug tile json</summary>
+                      <pre style={{ fontSize: 11, maxHeight: 220, overflow: "auto", background: "#f6f6f6", padding: 10 }}>
+                        {JSON.stringify(pickedTile, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="empty">
+              <div className="emptyTitle">Enter with fragments. Leave with something whole.</div>
+              <div className="emptySub">Search a topic to build your mosaic.</div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
 }
